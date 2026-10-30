@@ -46,13 +46,14 @@ with sync_playwright() as p:
     pg.on("console", lambda m: errs.append(m.text) if m.type == "error" else None)
     pg.goto(URL); pg.wait_for_timeout(900)
 
-    box = lambda: pg.eval_on_selector("#island", "e=>{const r=e.getBoundingClientRect();return {w:Math.round(r.width),h:Math.round(r.height)}}")
+    box = lambda: pg.eval_on_selector("#island", "e=>{const r=e.getBoundingClientRect();return {w:Math.round(r.width),h:Math.round(r.height),y:Math.round(r.top)}}")
     near = lambda g, w, h: abs(g["w"] - w) <= 1 and abs(g["h"] - h) <= 1
     calls = lambda: pg.evaluate("window.__calls.map(c=>c[0])")
     last = lambda n: pg.evaluate("(function(){var c=window.__calls.filter(x=>x[0]==='%s');return c.length?c[c.length-1]:null})()" % n)
 
     # ---- preview geometry -------------------------------------------------
     chk("idle geometry", near(box(), 130, 38), box())
+    chk("island hugs the top of the screen", box()["y"] <= 30, box())
     for st, exp in [("incoming", (312, 88)), ("calling", (274, 66)), ("music", (318, 128))]:
         pg.click(f'#states .chip[data-s="{st}"]'); pg.wait_for_timeout(1700)
         g = box(); chk(f"state {st} size", near(g, *exp), g)
@@ -79,6 +80,13 @@ with sync_playwright() as p:
     pg.evaluate("window.__canDraw = true; window.__sysState(true, false, false)")
     pg.wait_for_timeout(300)
     chk("permission granted hides the grant button", pg.eval_on_selector("#btnPerm", "e=>e.hidden") is True)
+
+    pg.evaluate("window.__sysState(true, false, false, 'window: BadTokenException')")
+    pg.wait_for_timeout(200)
+    chk("a broken overlay is reported, not swallowed",
+        "BadTokenException" in pg.eval_on_selector("#sysHint", "e=>e.textContent"))
+    pg.evaluate("window.__sysState(true, false, false, '')")
+    pg.wait_for_timeout(200)
 
     pg.click("#pw"); pg.wait_for_timeout(800)
     chk("switch turns on", "On" in pg.eval_on_selector("#pwLabel", "e=>e.textContent"))
@@ -155,9 +163,12 @@ with sync_playwright() as p:
     oerrs = []
     op.on("pageerror", lambda e: oerrs.append(str(e)))
     op.goto(OVERLAY_URL)
-    op.wait_for_timeout(800)
+    op.wait_for_timeout(1700)
     obox = lambda: op.eval_on_selector("#island", "e=>{const r=e.getBoundingClientRect();return {w:Math.round(r.width),h:Math.round(r.height)}}")
     chk("overlay idle size", near(obox(), 130, 38), obox())
+    chk("overlay island sits at the top of its window",
+        op.eval_on_selector("#island", "e=>Math.round(e.getBoundingClientRect().top)") == 0,
+        op.eval_on_selector("#island", "e=>Math.round(e.getBoundingClientRect().top)"))
     chk("overlay reports its size to native", "resize" in op.evaluate("window.__calls.map(c=>c[0])"))
     chk("overlay body is transparent",
         op.evaluate("getComputedStyle(document.body).backgroundColor").startswith("rgba(0, 0, 0, 0)"))

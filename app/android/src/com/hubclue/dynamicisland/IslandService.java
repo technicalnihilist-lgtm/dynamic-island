@@ -36,14 +36,16 @@ public class IslandService extends Service {
     public static final String ACTION_START = "com.hubclue.dynamicisland.START";
     public static final String ACTION_STOP = "com.hubclue.dynamicisland.STOP";
 
-    /** must match the .island top offset in overlay.html */
-    private static final int PAD_DP = 12;
+    /** breathing room under the island inside its window; the island itself sits at the very top */
+    private static final int PAD_DP = 10;
     private static final int NOTIF_ID = 7;
     private static final String CHANNEL_ID = "island";
 
     public static volatile boolean RUNNING = false;
     /** last state the island was put in, so the app can mirror it on resume */
     public static volatile String currentState = "idle";
+    /** last failure, surfaced in the app so a broken overlay is never silent */
+    public static volatile String lastError = "";
     private static IslandService sInstance;
     private boolean attached = false;
 
@@ -81,6 +83,7 @@ public class IslandService extends Service {
         } catch (Throwable t) {
             // no notification permission, or the system refused the FGS: the
             // overlay is still worth trying, so fall through
+            lastError = "fg: " + t.getClass().getSimpleName();
         }
         if (web == null) addOverlay();
         return START_STICKY;
@@ -121,13 +124,13 @@ public class IslandService extends Service {
     }
 
     /**
-     * The app shows its own preview while it is on screen, so the floating
-     * window is detached then. Detaching (rather than hiding) matters: a hidden
-     * overlay window would still swallow touches meant for the app underneath.
+     * While the app is in front it draws its own preview, so the floating window
+     * is detached. Detaching (rather than hiding) matters: a hidden overlay
+     * window would still swallow touches meant for the app underneath.
      */
-    public static void setHostVisible(boolean visible) {
+    public static void setHostInForeground(boolean inForeground) {
         IslandService s = sInstance;
-        if (s != null) s.applyHostVisible(visible);
+        if (s != null) s.applyHostVisible(!inForeground);
     }
 
     private void applyHostVisible(final boolean visible) {
@@ -183,16 +186,21 @@ public class IslandService extends Service {
                     | WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED;
 
             lp = new WindowManager.LayoutParams(
-                    dp(136), dp(56), type, flags, PixelFormat.TRANSLUCENT);
+                    dp(150), dp(48) + dp(PAD_DP), type, flags, PixelFormat.TRANSLUCENT);
             lp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
-            lp.y = statusBarHeight() + dp(4);
+            // hard against the top of the screen, just under the status bar
+            lp.y = statusBarHeight() + dp(2);
 
             wm.addView(web, lp);
             attached = true;
             web.loadUrl("file:///android_asset/overlay.html");
             RUNNING = true;
+            lastError = "";
+            // if the app is on screen right now, step aside until it leaves
+            if (MainActivity.VISIBLE) applyHostVisible(false);
         } catch (Throwable t) {
             RUNNING = false;
+            lastError = "window: " + t.getClass().getSimpleName();
             try {
                 stopSelf();
             } catch (Throwable ignored) {
@@ -224,15 +232,17 @@ public class IslandService extends Service {
         ui.post(new Runnable() {
             @Override
             public void run() {
-                if (web == null || lp == null || !attached) return;
+                if (web == null || lp == null) return;
                 try {
-                    int maxW = getResources().getDisplayMetrics().widthPixels - dp(16);
+                    int maxW = getResources().getDisplayMetrics().widthPixels - dp(8);
                     int w = Math.min(dp(Math.max(24, wCss)) + dp(PAD_DP) * 2, maxW);
-                    int h = dp(Math.max(16, hCss)) + dp(PAD_DP) * 2;
+                    int h = dp(Math.max(16, hCss)) + dp(PAD_DP);
                     if (w == lp.width && h == lp.height) return;
                     lp.width = w;
                     lp.height = h;
-                    wm.updateViewLayout(web, lp);
+                    // the size is kept up to date even while detached, so the
+                    // window is already right the moment it is re-attached
+                    if (attached) wm.updateViewLayout(web, lp);
                 } catch (Throwable ignored) {
                 }
             }

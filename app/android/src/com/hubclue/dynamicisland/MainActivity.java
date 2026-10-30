@@ -35,6 +35,9 @@ public class MainActivity extends Activity {
     private int insetTop = 0;
     private int insetBottom = 0;
 
+    /** true while this activity is on screen, so the overlay can step aside */
+    static volatile boolean VISIBLE = false;
+
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     @Override
     protected void onCreate(Bundle saved) {
@@ -162,10 +165,12 @@ public class MainActivity extends Activity {
             return;
         }
         try {
+            IslandService.lastError = "";
             Intent i = new Intent(this, IslandService.class).setAction(IslandService.ACTION_START);
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(i);
             else startService(i);
-        } catch (Throwable ignored) {
+        } catch (Throwable t) {
+            IslandService.lastError = "start: " + t.getClass().getSimpleName();
         }
     }
 
@@ -181,8 +186,10 @@ public class MainActivity extends Activity {
         String st = IslandService.currentState;
         if (st == null) st = "idle";
         st = st.replaceAll("[^a-z]", "");
+        String err = IslandService.lastError == null ? "" : IslandService.lastError;
+        err = err.replace("'", " ").replace("\\", " ");
         String js = "window.__sysState&&window.__sysState("
-                + canDraw() + "," + IslandService.RUNNING + "," + notifAccess() + ");"
+                + canDraw() + "," + IslandService.RUNNING + "," + notifAccess() + ",'" + err + "');"
                 + "window.__overlayState&&window.__overlayState('" + st + "')";
         try {
             web.evaluateJavascript(js, null);
@@ -307,8 +314,9 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         if (web != null) web.onResume();
+        VISIBLE = true;
         // this app draws its own preview, so the floating window steps aside
-        IslandService.setHostVisible(true);
+        IslandService.setHostInForeground(true);
         pushSystemState();
         web.postDelayed(new Runnable() {
             @Override
@@ -339,7 +347,9 @@ public class MainActivity extends Activity {
     protected void onPause() {
         super.onPause();
         if (web != null) web.onPause();
-        IslandService.setHostVisible(false);
+        VISIBLE = false;
+        // we are leaving, so the floating island takes over from the preview
+        IslandService.setHostInForeground(false);
     }
 
     @Override
