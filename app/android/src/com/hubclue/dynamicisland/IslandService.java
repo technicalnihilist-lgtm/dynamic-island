@@ -42,7 +42,10 @@ public class IslandService extends Service {
     private static final String CHANNEL_ID = "island";
 
     public static volatile boolean RUNNING = false;
+    /** last state the island was put in, so the app can mirror it on resume */
+    public static volatile String currentState = "idle";
     private static IslandService sInstance;
+    private boolean attached = false;
 
     private WindowManager wm;
     private WebView web;
@@ -117,6 +120,39 @@ public class IslandService extends Service {
         if (s != null) s.applyConfig(wm_, hm_, rm_, bounce);
     }
 
+    /**
+     * The app shows its own preview while it is on screen, so the floating
+     * window is detached then. Detaching (rather than hiding) matters: a hidden
+     * overlay window would still swallow touches meant for the app underneath.
+     */
+    public static void setHostVisible(boolean visible) {
+        IslandService s = sInstance;
+        if (s != null) s.applyHostVisible(visible);
+    }
+
+    private void applyHostVisible(final boolean visible) {
+        ui.post(new Runnable() {
+            @Override
+            public void run() {
+                if (web == null || wm == null || lp == null) return;
+                if (visible && !attached) {
+                    try {
+                        wm.addView(web, lp);
+                        attached = true;
+                        eval("window.__reportSize&&window.__reportSize()");
+                    } catch (Throwable ignored) {
+                    }
+                } else if (!visible && attached) {
+                    try {
+                        wm.removeView(web);
+                    } catch (Throwable ignored) {
+                    }
+                    attached = false;
+                }
+            }
+        });
+    }
+
     // ---------------------------------------------------------------- overlay
 
     private void addOverlay() {
@@ -131,6 +167,7 @@ public class IslandService extends Service {
             s.setSupportZoom(false);
             s.setBuiltInZoomControls(false);
             s.setMediaPlaybackRequiresUserGesture(false);
+            s.setTextZoom(100);
             s.setUseWideViewPort(true);
             s.setLoadWithOverviewMode(false);
             web.setWebViewClient(new WebViewClient());
@@ -151,6 +188,7 @@ public class IslandService extends Service {
             lp.y = statusBarHeight() + dp(4);
 
             wm.addView(web, lp);
+            attached = true;
             web.loadUrl("file:///android_asset/overlay.html");
             RUNNING = true;
         } catch (Throwable t) {
@@ -178,6 +216,7 @@ public class IslandService extends Service {
         web = null;
         lp = null;
         pageReady = false;
+        attached = false;
     }
 
     /** JS reports the island box in CSS px, which is dp inside a WebView. */
@@ -185,7 +224,7 @@ public class IslandService extends Service {
         ui.post(new Runnable() {
             @Override
             public void run() {
-                if (web == null || lp == null) return;
+                if (web == null || lp == null || !attached) return;
                 try {
                     int maxW = getResources().getDisplayMetrics().widthPixels - dp(16);
                     int w = Math.min(dp(Math.max(24, wCss)) + dp(PAD_DP) * 2, maxW);
@@ -202,6 +241,7 @@ public class IslandService extends Service {
 
     private void applyState(String state) {
         pendingState = state;
+        currentState = state;
         if (!pageReady) return;
         eval("window.__setState&&window.__setState(" + JSONObject.quote(state) + ")");
     }
@@ -252,6 +292,7 @@ public class IslandService extends Service {
                 @Override
                 public void run() {
                     pageReady = true;
+                    eval("window.__setMax&&window.__setMax(" + maxWidthDp() + ")");
                     if (pendingState != null) applyState(pendingState);
                     deliverNotification();
                 }
@@ -261,6 +302,12 @@ public class IslandService extends Service {
         @JavascriptInterface
         public void resize(int w, int h) {
             resizeTo(w, h);
+        }
+
+        /** the floating island moved on its own (a tap, a notification) */
+        @JavascriptInterface
+        public void stateChanged(String state) {
+            if (state != null) currentState = state;
         }
 
         @JavascriptInterface
@@ -322,6 +369,15 @@ public class IslandService extends Service {
 
     private int dp(int v) {
         return Math.round(v * getResources().getDisplayMetrics().density);
+    }
+
+    private int maxWidthDp() {
+        try {
+            float d = getResources().getDisplayMetrics().density;
+            return Math.max(160, Math.round(getResources().getDisplayMetrics().widthPixels / d) - 24);
+        } catch (Throwable t) {
+            return 320;
+        }
     }
 
     private int statusBarHeight() {

@@ -178,8 +178,12 @@ public class MainActivity extends Activity {
 
     private void pushSystemState() {
         if (web == null) return;
+        String st = IslandService.currentState;
+        if (st == null) st = "idle";
+        st = st.replaceAll("[^a-z]", "");
         String js = "window.__sysState&&window.__sysState("
-                + canDraw() + "," + IslandService.RUNNING + "," + notifAccess() + ")";
+                + canDraw() + "," + IslandService.RUNNING + "," + notifAccess() + ");"
+                + "window.__overlayState&&window.__overlayState('" + st + "')";
         try {
             web.evaluateJavascript(js, null);
         } catch (Throwable ignored) {
@@ -303,6 +307,8 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         if (web != null) web.onResume();
+        // this app draws its own preview, so the floating window steps aside
+        IslandService.setHostVisible(true);
         pushSystemState();
         web.postDelayed(new Runnable() {
             @Override
@@ -333,6 +339,7 @@ public class MainActivity extends Activity {
     protected void onPause() {
         super.onPause();
         if (web != null) web.onPause();
+        IslandService.setHostVisible(false);
     }
 
     @Override

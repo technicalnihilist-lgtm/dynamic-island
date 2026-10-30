@@ -11,7 +11,7 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
   -webkit-tap-highlight-color:transparent;touch-action:manipulation;
   font-family:-apple-system,"SF Pro Display","Helvetica Neue",Inter,system-ui,Roboto,sans-serif}
 
-.island{position:absolute;top:12px;left:50%;width:112px;height:32px;border-radius:16px;overflow:hidden;
+.island{position:absolute;top:12px;left:50%;width:130px;height:38px;border-radius:19px;overflow:hidden;
   transform:translateX(-50%);transform-origin:top center;
   background:rgba(5,5,9,.95);
   border:1px solid rgba(255,255,255,.16);
@@ -28,16 +28,16 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
 .content.in{opacity:1;transform:scale(1)}
 
 .col{display:flex;flex-direction:column;min-width:0;flex:1}
-.t1{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.t2{font-size:11.5px;color:rgba(255,255,255,.7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.av{width:40px;height:40px;border-radius:50%;flex:none;display:grid;place-items:center;
-  font-weight:600;font-size:16px;background:linear-gradient(135deg,#7aa7ff,#c07bff)}
-.av.sm{width:24px;height:24px;font-size:11px}
+.t1{font-size:15.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.t2{font-size:12.5px;color:rgba(255,255,255,.72);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.av{width:44px;height:44px;border-radius:50%;flex:none;display:grid;place-items:center;
+  font-weight:600;font-size:17px;background:linear-gradient(135deg,#7aa7ff,#c07bff)}
+.av.sm{width:28px;height:28px;font-size:12px}
 
-.btn{width:38px;height:38px;border-radius:50%;border:0;color:#fff;display:grid;place-items:center;
+.btn{width:42px;height:42px;border-radius:50%;border:0;color:#fff;display:grid;place-items:center;
   cursor:pointer;flex:none;padding:0;transition:transform .25s cubic-bezier(.3,1.8,.5,1)}
 .btn:active{transform:scale(.84)}
-.btn svg{width:18px;height:18px;fill:#fff;pointer-events:none}
+.btn svg{width:19px;height:19px;fill:#fff;pointer-events:none}
 .red{background:#ff453a}.green{background:#30d158}
 
 .wave{display:flex;gap:2px;align-items:center;height:18px}
@@ -54,11 +54,11 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
 .rows{display:flex;flex-direction:column;gap:8px;width:100%}
 .r1{display:flex;align-items:center;gap:10px}
 .r2{display:flex;justify-content:space-around;align-items:center}
-.ib{width:38px;height:38px;border-radius:50%;border:0;background:rgba(255,255,255,.2);
+.ib{width:42px;height:42px;border-radius:50%;border:0;background:rgba(255,255,255,.2);
   display:grid;place-items:center;cursor:pointer;padding:0;
   transition:transform .25s cubic-bezier(.3,1.8,.5,1),background .2s}
 .ib:active{transform:scale(.82)}
-.ib svg{width:18px;height:18px;fill:#fff;pointer-events:none}
+.ib svg{width:19px;height:19px;fill:#fff;pointer-events:none}
 .ib.act{background:#fff}.ib.act svg{fill:#000}
 .ib.red{background:#ff453a}
 </style>
@@ -77,10 +77,11 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
   var clamp = function(v,a,b){ return v<a?a:(v>b?b:v); };
 
   var BASE = {
-    idle:{w:112,h:32}, notif:{w:280,h:84}, incoming:{w:272,h:78},
-    calling:{w:240,h:58}, ongoing:{w:276,h:104}, music:{w:276,h:112}
+    idle:{w:130,h:38}, notif:{w:318,h:94}, incoming:{w:312,h:88},
+    calling:{w:274,h:66}, ongoing:{w:318,h:118}, music:{w:318,h:128}
   };
   var S = { wm:1, hm:1, rm:1, bounce:.65 };
+  var maxW = 320;   /* the native side tells us how wide we are allowed to be */
 
   /* ---- springs ---- */
   function Spring(v){ this.x=v; this.v=0; this.t=v; }
@@ -89,12 +90,12 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     for(var i=0;i<n;i++){ var a=-k*(this.x-this.t)-c*this.v; this.v+=a*h; this.x+=this.v*h; }
     return Math.abs(this.x-this.t)>.05||Math.abs(this.v)>.05;
   };
-  var spW=new Spring(112), spH=new Spring(32), spR=new Spring(16);
+  var spW=new Spring(130), spH=new Spring(38), spR=new Spring(19);
   function zeta(){ return clamp(.95-.80*S.bounce,.12,1.02); }
 
-  var raf=null, lastT=0, settleT=null, settledW=112, settledH=32;
+  var raf=null, lastT=0, settleT=null, settledW=130, settledH=38;
   function paint(){
-    var w=clamp(spW.x,20,320), h=clamp(spH.x,14,220), r=clamp(spR.x,6,h/2);
+    var w=clamp(spW.x,20,maxW), h=clamp(spH.x,14,240), r=clamp(spR.x,6,h/2);
     island.style.width=w.toFixed(2)+'px';
     island.style.height=h.toFixed(2)+'px';
     island.style.borderRadius=r.toFixed(2)+'px';
@@ -116,6 +117,18 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     }
   }
   function kick(){ if(raf===null){ lastT=0; raf=requestAnimationFrame(frame); } }
+  /* frames can be throttled (screen off, host detached, heavy device). Settle
+     anyway so the island is never stranded at an in-between size. */
+  var settleT=null;
+  function snapAll(){
+    spW.x=spW.t; spH.x=spH.t; spR.x=spR.t;
+    spW.v=spH.v=spR.v=0;
+    if(raf!==null){ cancelAnimationFrame(raf); raf=null; }
+    lastT=0; paint();
+    var w=Math.round(spW.x), h=Math.round(spH.x);
+    if(w!==settledW||h!==settledH){ settledW=w; settledH=h; resize(w,h); }
+  }
+  function armSettle(){ if(settleT) clearTimeout(settleT); settleT=setTimeout(function(){ settleT=null; snapAll(); },1500); }
 
   var state='idle', lastOpen='music', swapT=null, token=0, notifT=null;
   var notifData=['','',''];
@@ -176,9 +189,9 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
 
   function targets(){
     var b=BASE[state]||BASE.idle;
-    spW.t=Math.min(b.w*S.wm,300);
+    spW.t=Math.min(b.w*S.wm,maxW);
     spH.t=b.h*S.hm;
-    spR.t=Math.min(spH.t/2,34)*S.rm;
+    spR.t=Math.min(spH.t/2,38)*S.rm;
   }
   function setState(next){
     if(!BASE[next]) next='idle';
@@ -190,7 +203,7 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     /* grow the native window first so nothing is clipped while it morphs */
     var needW=Math.max(beforeW,spW.t), needH=Math.max(beforeH,spH.t);
     if(needW>settledW||needH>settledH){ settledW=Math.round(needW); settledH=Math.round(needH); resize(settledW,settledH); }
-    kick();
+    kick(); armSettle();
 
     var my=++token;
     content.classList.remove('in');
@@ -210,6 +223,7 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
       if(state==='notif') notifT=setTimeout(function(){ setState('idle'); },7000);
     }, state==='idle'?130:110);
     haptic(state==='idle'?'light':'medium');
+    try{ if(N && N.stateChanged) N.stateChanged(state); }catch(e){}
   }
 
   island.addEventListener('click',function(e){
@@ -248,7 +262,15 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     if(typeof hm==='number') S.hm=hm;
     if(typeof rm==='number') S.rm=rm;
     if(typeof b==='number') S.bounce=b;
-    targets(); kick();
+    targets(); kick(); armSettle();
+  };
+  window.__setMax=function(px){
+    if(typeof px==='number' && px>80){ maxW=px; targets(); kick(); }
+  };
+  /* re-report the box after the window is re-attached (app went to background) */
+  window.__reportSize=function(){
+    settledW=Math.round(spW.x); settledH=Math.round(spH.x);
+    resize(settledW, settledH);
   };
   window.__notify=function(app,title,text){
     notifData=[app||'',title||'',text||''];
