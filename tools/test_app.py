@@ -27,6 +27,8 @@ window.Native = {
   setOverlayState: function(s){ rec('setOverlayState', [s]); },
   setOverlayConfig: function(){ rec('setOverlayConfig', arguments); },
   setOverlayPosition: function(){ rec('setOverlayPosition', arguments); },
+  setOverlayLock: function(){ rec('setOverlayLock', arguments); },
+  media: function(){ rec('media', arguments); },
   callAction: function(){ rec('callAction', arguments); }
 };
 """
@@ -55,7 +57,7 @@ with sync_playwright() as p:
 
     # ---- preview geometry -------------------------------------------------
     chk("idle geometry", near(box(), 130, 38), box())
-    chk("island hugs the top of the screen", box()["y"] <= 30, box())
+    chk("island sits at the absolute top by default", box()["y"] <= 6, box())
     for st, exp in [("incoming", (312, 88)), ("calling", (274, 66)), ("music", (318, 128))]:
         pg.click(f'#states .chip[data-s="{st}"]'); pg.wait_for_timeout(1700)
         g = box(); chk(f"state {st} size", near(g, *exp), g)
@@ -154,6 +156,14 @@ with sync_playwright() as p:
     chk("100% vertical puts the island at the bottom of the stage",
         pg.eval_on_selector("#island", "e=>e.getBoundingClientRect().bottom") > st["bottom"] - 14)
     chk("position reaches the floating window", "setOverlayPosition" in calls())
+
+    # ---- lock screen toggle ---------------------------------------------
+    chk("lock screen is on by default", "Show on lock screen" in pg.eval_on_selector("#lkLabel", "e=>e.textContent"))
+    pg.eval_on_selector("#lk", "e=>e.click()"); pg.wait_for_timeout(200)
+    chk("lock screen toggle reaches the window", last("setOverlayLock")[1] is False, last("setOverlayLock"))
+    chk("lock screen label follows", "Hidden" in pg.eval_on_selector("#lkLabel", "e=>e.textContent"))
+    pg.eval_on_selector("#lk", "e=>e.click()"); pg.wait_for_timeout(200)
+    chk("lock screen toggle turns back on", last("setOverlayLock")[1] is True, last("setOverlayLock"))
     pg.eval_on_selector("#btnReset", "e=>e.click()")
     pg.wait_for_timeout(1500)
 
@@ -222,6 +232,26 @@ with sync_playwright() as p:
     op.evaluate("window.__callEnd()")
     op.wait_for_timeout(1600)
     chk("ending the call collapses the island", near(obox(), 130, 38), obox())
+
+    # ---- real music ------------------------------------------------------
+    op.evaluate("window.__music('Kesariya','Arijit Singh',true)")
+    op.wait_for_timeout(1600)
+    chk("a playing song opens the music view", near(obox(), 318, 128), obox())
+    chk("the real song title is shown", "Kesariya" in op.eval_on_selector("#content", "e=>e.textContent"))
+    chk("the real artist is shown", "Arijit" in op.eval_on_selector("#content", "e=>e.textContent"))
+    chk("there is a pause button while playing",
+        op.eval_on_selector('#content [data-a="play"]', "e=>e.getAttribute('aria-label')") == "Pause")
+    op.click('#content [data-a="play"]'); op.wait_for_timeout(300)
+    chk("pause goes to the real player", olast("media")[1] == "pause", olast("media"))
+    chk("the icon flips to play",
+        op.eval_on_selector('#content [data-a="play"]', "e=>e.getAttribute('aria-label')") == "Play")
+    op.click('#content [data-a="next"]'); op.wait_for_timeout(300)
+    chk("next goes to the real player", olast("media")[1] == "next", olast("media"))
+    op.click('#content [data-a="prev"]'); op.wait_for_timeout(300)
+    chk("previous goes to the real player", olast("media")[1] == "prev", olast("media"))
+    op.evaluate("window.__musicEnd()")
+    op.wait_for_timeout(1600)
+    chk("stopping the music collapses the island", near(obox(), 130, 38), obox())
     op.evaluate("window.__setMax(240)"); op.evaluate("window.__setState('music')"); op.wait_for_timeout(1500)
     chk("overlay honours the max width it is given", obox()["w"] <= 240, obox())
     chk("overlay has no errors", len(oerrs) == 0, oerrs[:3])

@@ -51,7 +51,7 @@ body{
 
 /* ---------- the island ---------- */
 .island{
-  position:absolute;top:calc(var(--it) + 2px + var(--ioff-y,0px));
+  position:absolute;top:var(--ioff-y,0px);
   left:calc(50% + var(--ioff-x,0px));
   width:130px;height:38px;border-radius:19px;overflow:hidden;
   transform:translateX(-50%);transform-origin:top center;
@@ -235,7 +235,10 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
       <h2>Position</h2>
       <label class="sl" for="sx">Horizontal <input type="range" id="sx" min="0" max="100" value="50"><output for="sx"></output></label>
       <label class="sl" for="sy">Vertical <input type="range" id="sy" min="0" max="100" value="0"><output for="sy"></output></label>
-      <p class="hint">Moves the floating island too. 50% / 0% is centred at the very top.</p>
+      <p class="hint">Moves the floating island too. 0% vertical is the absolute top of the screen, above the status bar.</p>
+      <button class="tog" id="lk" role="switch" aria-checked="true" style="margin-top:6px">
+        <span id="lkLabel">Show on lock screen</span><b class="knob"></b>
+      </button>
     </div>
 
     <div class="card">
@@ -276,7 +279,7 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   function haptic(kind){ try{ if(N && N.haptic) N.haptic(kind||'light'); }catch(e){} }
 
   /* ============ persisted settings ============ */
-  var DEFAULTS = { wm:1, hm:1, rm:1, alpha:.75, blur:18, bounce:.65, on:false, px:50, py:0 };
+  var DEFAULTS = { wm:1, hm:1, rm:1, alpha:.75, blur:18, bounce:.72, on:false, px:50, py:0, lock:true };
   var S = (function(){
     try{
       var raw = localStorage.getItem('di.settings');
@@ -364,7 +367,7 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
     var w = Math.min(spW.t, st.width);
     var h = Math.min(spH.t, st.height);
     var availX = Math.max(0, st.width - w);
-    var availY = Math.max(0, st.height - h - 4);
+    var availY = Math.max(0, st.height - h);
     var offX = (S.px/100)*availX - availX/2;
     var offY = (S.py/100)*availY;
     island.style.setProperty('--ioff-x', offX.toFixed(1)+'px');
@@ -378,7 +381,13 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
     spH.t = b.h*S.hm;
     spR.t = Math.min(spH.t/2, 38)*S.rm;
     if(snap){ spW.x = spW.t; spH.x = spH.t; spR.x = spR.t; paint(); }
-    else { kick(); armSettle(); }
+    else {
+      /* a little extra push in the direction of travel makes the morph feel
+         fluid instead of merely damped - big jumps bounce more than small ones */
+      spW.v += (spW.t >= spW.x ? 1 : -1) * Math.min(130, Math.abs(spW.t - spW.x) * 1.3);
+      spH.v += (spH.t >= spH.x ? 1 : -1) * Math.min(130, Math.abs(spH.t - spH.x) * 1.3);
+      kick(); armSettle();
+    }
     applyPos();
   }
 
@@ -519,6 +528,9 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
       try{ N.setOverlayPosition(S.px, S.py); }catch(e){}
     }
   }
+  function pushLock(){
+    if(N && N.setOverlayLock){ try{ N.setOverlayLock(!!S.lock); }catch(e){} }
+  }
   function sysHint(){
     var el = $('#sysHint'), btn = $('#btnPerm');
     if(sys.err){
@@ -559,7 +571,7 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
       if(v && !sys.running){ try{ N.startOverlay(); }catch(e){} sys.running = true; }
       if(!v && sys.running){ try{ N.stopOverlay(); }catch(e){} sys.running = false; }
     }
-    if(v) setTimeout(function(){ pushConfig(); pushPosition(); }, 700);
+    if(v) setTimeout(function(){ pushConfig(); pushPosition(); pushLock(); }, 700);
     sysHint();
     kick();
     if(!silent) haptic('light');
@@ -589,7 +601,7 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
     b.setAttribute('aria-checked', S.on ? 'true' : 'false');
     $('#pwLabel').textContent = 'System-wide island: ' + (S.on ? 'On' : 'Off');
     island.style.pointerEvents = S.on ? 'none' : 'auto';
-    if(!wasRunning && sys.running){ pushConfig(); pushPosition(); }
+    if(!wasRunning && sys.running){ pushConfig(); pushPosition(); pushLock(); }
     sysHint();
   };
 
@@ -647,6 +659,14 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   $('#btnPerm').addEventListener('click', function(){
     if(N && N.requestOverlay){ try{ N.requestOverlay(); }catch(e){} }
   });
+  function syncLockUI(){
+    var b = $('#lk');
+    b.setAttribute('aria-checked', S.lock ? 'true' : 'false');
+    $('#lkLabel').textContent = S.lock ? 'Show on lock screen' : 'Hidden on lock screen';
+  }
+  $('#lk').addEventListener('click', function(){
+    S.lock = !S.lock; save(); syncLockUI(); pushLock(); haptic('light');
+  });
   $('#btnNotif').addEventListener('click', function(){
     if(N && N.requestNotifAccess){ try{ N.requestNotifAccess(); }catch(e){} }
   });
@@ -689,7 +709,7 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   }
   $('#btnReset').addEventListener('click', function(){
     for(var k in DEFAULTS) S[k] = DEFAULTS[k];
-    save(); loadSettingsIntoUI(); applyTargets(false); pushConfig(); pushPosition();
+    save(); loadSettingsIntoUI(); applyTargets(false); pushConfig(); pushPosition(); pushLock(); syncLockUI();
     spW.v += 30; kick(); haptic('medium');
   });
 
@@ -768,6 +788,8 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   setPower(!!S.on, true);
   applyTargets(true);
   pushPosition();
+  pushLock();
+  syncLockUI();
   tickClock(); tickBattery();
   setInterval(tickClock, 1000);
   setInterval(tickBattery, 30000);

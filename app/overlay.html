@@ -133,6 +133,8 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
   var state='idle', lastOpen='music', swapT=null, token=0, notifT=null;
   var notifData=['','',''];
   var callData={ name:'Maya Chen', label:'Incoming call…', real:false };
+  /* when a real player is running these come from its media session */
+  var musicData={ title:'Glass Hours', artist:'Neon Tide', playing:true, real:false };
   var ti=0, playing=true, secs=0, callTick=null;
 
   var P={mic:'M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-3.1A7 7 0 0 0 19 11z',
@@ -178,13 +180,16 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
         '</div></div>';
     },
     music:function(){
-      return '<div class="rows'+(playing?'':' paused')+'"><div class="r1">'+
+      var t = musicData.real ? musicData.title : TRACKS[ti][0];
+      var a = musicData.real ? musicData.artist : TRACKS[ti][1];
+      var on = musicData.real ? musicData.playing : playing;
+      return '<div class="rows'+(on?'':' paused')+'"><div class="r1">'+
         '<div class="av" style="border-radius:12px;background:linear-gradient(135deg,#ff6fa8,#ffb35c)">♪</div>'+
-        '<div class="col"><span class="t1">'+TRACKS[ti][0]+'</span><span class="t2">'+TRACKS[ti][1]+'</span></div>'+
+        '<div class="col"><span class="t1">'+esc(t)+'</span><span class="t2">'+esc(a)+'</span></div>'+
         '<div class="bars"><i></i><i></i><i></i></div></div>'+
         '<div class="r2">'+
         '<button class="ib" data-a="prev" aria-label="Previous">'+ic('prev')+'</button>'+
-        '<button class="ib" data-a="play" aria-label="Play or pause">'+ic(playing?'pause':'play')+'</button>'+
+        '<button class="ib" data-a="play" aria-label="'+(on?'Pause':'Play')+'">'+ic(on?'pause':'play')+'</button>'+
         '<button class="ib" data-a="next" aria-label="Next">'+ic('next')+'</button>'+
         '</div></div>';
     }
@@ -243,17 +248,29 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
       }
       else if(act==='mute'||act==='speaker'){ a.classList.toggle('act'); spH.v+=24; kick(); haptic(); }
       else if(act==='play'){
-        playing=!playing;
-        a.innerHTML=ic(playing?'pause':'play');
+        if(musicData.real){
+          var want=musicData.playing?'pause':'play';
+          musicData.playing=!musicData.playing;
+          try{ if(N&&N.media) N.media(want); }catch(e){}
+        } else {
+          playing=!playing;
+        }
+        var nowOn = musicData.real ? musicData.playing : playing;
+        a.innerHTML=ic(nowOn?'pause':'play');
+        a.setAttribute('aria-label', nowOn?'Pause':'Play');
         var rows=content.querySelector('.rows');
-        if(rows) rows.classList.toggle('paused',!playing);
+        if(rows) rows.classList.toggle('paused',!nowOn);
         spH.v+=24; kick(); haptic();
       }
       else if(act==='prev'||act==='next'){
-        ti=(ti+(act==='next'?1:TRACKS.length-1))%TRACKS.length;
-        var t1=content.querySelector('.col .t1'), t2=content.querySelector('.col .t2');
-        if(t1) t1.textContent=TRACKS[ti][0];
-        if(t2) t2.textContent=TRACKS[ti][1];
+        if(musicData.real){
+          try{ if(N&&N.media) N.media(act==='next'?'next':'prev'); }catch(e){}
+        } else {
+          ti=(ti+(act==='next'?1:TRACKS.length-1))%TRACKS.length;
+          var t1=content.querySelector('.col .t1'), t2=content.querySelector('.col .t2');
+          if(t1) t1.textContent=TRACKS[ti][0];
+          if(t2) t2.textContent=TRACKS[ti][1];
+        }
         spW.v+=55; kick(); haptic();
       }
       e.stopPropagation();
@@ -288,6 +305,27 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
   window.__callEnd=function(){
     callData.real=false;
     if(state==='incoming'||state==='ongoing') setState('idle');
+  };
+  window.__music=function(title,artist,isPlaying){
+    var changed = (title!==musicData.title) || (artist!==musicData.artist);
+    musicData={ title:(title||'Now playing'), artist:(artist||''), playing:!!isPlaying, real:true };
+    playing = !!isPlaying;
+    if(state!=='music'){ setState('music'); }
+    else if(changed){
+      var t1=content.querySelector('.col .t1'), t2=content.querySelector('.col .t2');
+      if(t1) t1.textContent=musicData.title;
+      if(t2) t2.textContent=musicData.artist;
+    }
+    var b=content.querySelector('[data-a="play"]');
+    if(b){
+      b.innerHTML=ic(musicData.playing?'pause':'play');
+      b.setAttribute('aria-label', musicData.playing?'Pause':'Play');
+    }
+    var rows=content.querySelector('.rows');
+    if(rows) rows.classList.toggle('paused',!musicData.playing);
+  };
+  window.__musicEnd=function(){
+    if(musicData.real){ musicData.real=false; if(state==='music') setState('idle'); }
   };
   window.__notify=function(app,title,text){
     notifData=[app||'',title||'',text||''];

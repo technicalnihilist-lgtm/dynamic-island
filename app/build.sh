@@ -14,8 +14,8 @@ BT="${BUILD_TOOLS:-$ANDROID_HOME/build-tools/34.0.0}"
 PLATFORM="$ANDROID_HOME/platforms/android-34/android.jar"
 [ -f "$PLATFORM" ] || { echo "missing $PLATFORM"; exit 1; }
 
-VERSION_CODE=5
-VERSION_NAME=1.4.0
+VERSION_CODE=6
+VERSION_NAME=1.5.0
 
 rm -rf "$BUILD"
 mkdir -p "$BUILD/compiled" "$BUILD/gen" "$BUILD/classes" "$BUILD/dex" "$DIST"

@@ -6,11 +6,16 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.app.PendingIntent;
+import android.content.ComponentName;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ServiceInfo;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
+import android.media.MediaMetadata;
+import android.media.session.MediaController;
+import android.media.session.MediaSessionManager;
+import android.media.session.PlaybackState;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
@@ -25,6 +30,8 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
 import org.json.JSONObject;
+
+import java.util.List;
 
 /**
  * Draws the island in a system overlay window so it stays on screen above every
@@ -59,6 +66,13 @@ public class IslandService extends Service {
     /* the incoming call's own answer / decline actions, taken from the phone's notification */
     private PendingIntent callAnswer, callDecline, callOpen;
     private String[] pendingCall;
+
+    /* real media, read straight out of the player's media session */
+    private MediaController media;
+    private String mediaPkg = "";
+    private boolean showOnLock = true;
+    private static boolean pendingLock = true;
+    private static boolean hasPendingLock = false;
     private static IslandService sInstance;
     private boolean attached = false;
 
@@ -79,6 +93,7 @@ public class IslandService extends Service {
         sInstance = this;
         wm = (WindowManager) getSystemService(WINDOW_SERVICE);
         loadPrefs();
+        if (hasPendingLock) showOnLock = pendingLock;
     }
 
     @Override
@@ -100,11 +115,14 @@ public class IslandService extends Service {
             lastError = "fg: " + t.getClass().getSimpleName();
         }
         if (web == null) addOverlay();
+        ui.removeCallbacks(mediaTick);
+        ui.postDelayed(mediaTick, 2500);
         return START_STICKY;
     }
 
     @Override
     public void onDestroy() {
+        ui.removeCallbacks(mediaTick);
         removeOverlay();
         RUNNING = false;
         sInstance = null;
@@ -142,6 +160,97 @@ public class IslandService extends Service {
      * is detached. Detaching (rather than hiding) matters: a hidden overlay
      * window would still swallow touches meant for the app underneath.
      */
+    public static void setLock(boolean on) {
+        pendingLock = on;
+        hasPendingLock = true;
+        IslandService s = sInstance;
+        if (s != null) s.applyLock(on);
+    }
+
+    private void applyLock(boolean on) {
+        showOnLock = on;
+        if (lp == null) return;
+        if (on) lp.flags |= WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED;
+        else lp.flags &= ~WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED;
+        if (attached) {
+            try {
+                wm.updateViewLayout(web, lp);
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    /* ------------------------------------------------------------- media */
+
+    private final Runnable mediaTick = new Runnable() {
+        @Override
+        public void run() {
+            pollMedia();
+            ui.postDelayed(this, 2000);
+        }
+    };
+
+    private void pollMedia() {
+        if (!pageReady) return;
+        try {
+            MediaSessionManager msm = (MediaSessionManager) getSystemService(MEDIA_SESSION_SERVICE);
+            if (msm == null) return;
+            List<MediaController> list = msm.getActiveSessions(new ComponentName(this, NotifListener.class));
+            MediaController playing = null, known = null;
+            if (list != null) {
+                for (MediaController c : list) {
+                    PlaybackState ps = c.getPlaybackState();
+                    if (ps == null) continue;
+                    int st = ps.getState();
+                    if (st == PlaybackState.STATE_PLAYING && playing == null) playing = c;
+                    if (known == null && mediaPkg.equals(c.getPackageName())) known = c;
+                }
+            }
+            MediaController target = playing != null ? playing : known;
+            if (target == null) {
+                if (mediaPkg.length() > 0) {
+                    mediaPkg = "";
+                    media = null;
+                    eval("window.__musicEnd&&window.__musicEnd()");
+                }
+                return;
+            }
+            media = target;
+            mediaPkg = target.getPackageName();
+            MediaMetadata md = target.getMetadata();
+            String title = md == null ? null : str(md.getString(MediaMetadata.METADATA_KEY_TITLE));
+            String artist = md == null ? null : str(md.getString(MediaMetadata.METADATA_KEY_ARTIST));
+            if (title == null) title = mediaPkg;
+            PlaybackState ps = target.getPlaybackState();
+            boolean isPlaying = ps != null && ps.getState() == PlaybackState.STATE_PLAYING;
+            eval("window.__music&&window.__music("
+                    + JSONObject.quote(title) + ","
+                    + JSONObject.quote(artist == null ? "" : artist) + ","
+                    + isPlaying + ")");
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static String str(String v) {
+        if (v == null) return null;
+        String t = v.trim();
+        return t.isEmpty() ? null : (t.length() > 60 ? t.substring(0, 58) + "…" : t);
+    }
+
+    private void mediaAction(String what) {
+        final MediaController c = media;
+        if (c == null) return;
+        try {
+            MediaController.TransportControls tc = c.getTransportControls();
+            if (tc == null) return;
+            if ("play".equals(what)) tc.play();
+            else if ("pause".equals(what)) tc.pause();
+            else if ("next".equals(what)) tc.skipToNext();
+            else if ("prev".equals(what)) tc.skipToPrevious();
+        } catch (Throwable ignored) {
+        }
+    }
+
     public static void setPosition(float px, float py) {
         pendingX = clampPct(px);
         pendingY = clampPct(py);
@@ -290,6 +399,7 @@ public class IslandService extends Service {
                     | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
                     | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
                     | WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED;
+            if (showOnLock) flags |= WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED;
 
             lp = new WindowManager.LayoutParams(
                     dp(150), dp(48) + dp(PAD_DP), type, flags, PixelFormat.TRANSLUCENT);
@@ -440,6 +550,17 @@ public class IslandService extends Service {
                 MainActivity.vibrate(IslandService.this, kind);
             } catch (Throwable ignored) {
             }
+        }
+
+        @JavascriptInterface
+        public void media(String what) {
+            final String a = what == null ? "" : what;
+            ui.post(new Runnable() {
+                @Override
+                public void run() {
+                    mediaAction(a);
+                }
+            });
         }
 
         @JavascriptInterface

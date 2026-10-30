@@ -294,6 +294,11 @@ public class MainActivity extends Activity {
         public void setOverlayPosition(float px, float py) {
             IslandService.setPosition(px, py);
         }
+
+        @JavascriptInterface
+        public void setOverlayLock(boolean on) {
+            IslandService.setLock(on);
+        }
     }
 
     // ------------------------------------------------------------------ static
