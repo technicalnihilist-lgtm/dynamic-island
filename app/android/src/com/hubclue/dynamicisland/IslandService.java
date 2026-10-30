@@ -5,7 +5,9 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.app.PendingIntent;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.ServiceInfo;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
@@ -13,6 +15,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
@@ -46,6 +49,16 @@ public class IslandService extends Service {
     public static volatile String currentState = "idle";
     /** last failure, surfaced in the app so a broken overlay is never silent */
     public static volatile String lastError = "";
+
+    private static final String PREFS = "island";
+    /* where the island sits, as a percentage of the free space: 50/0 = centred at the top */
+    private float posX = 50f, posY = 0f;
+    private static float pendingX = 50f, pendingY = 0f;
+    private static boolean hasPendingPos = false;
+
+    /* the incoming call's own answer / decline actions, taken from the phone's notification */
+    private PendingIntent callAnswer, callDecline, callOpen;
+    private String[] pendingCall;
     private static IslandService sInstance;
     private boolean attached = false;
 
@@ -65,6 +78,7 @@ public class IslandService extends Service {
         super.onCreate();
         sInstance = this;
         wm = (WindowManager) getSystemService(WINDOW_SERVICE);
+        loadPrefs();
     }
 
     @Override
@@ -128,6 +142,98 @@ public class IslandService extends Service {
      * is detached. Detaching (rather than hiding) matters: a hidden overlay
      * window would still swallow touches meant for the app underneath.
      */
+    public static void setPosition(float px, float py) {
+        pendingX = clampPct(px);
+        pendingY = clampPct(py);
+        hasPendingPos = true;
+        IslandService s = sInstance;
+        if (s != null) s.applyPositionNow(pendingX, pendingY);
+    }
+
+    public static void showCall(String name, String label,
+                                PendingIntent answer, PendingIntent decline, PendingIntent open) {
+        IslandService s = sInstance;
+        if (s != null) s.applyCall(name, label, answer, decline, open);
+    }
+
+    public static void endCall() {
+        IslandService s = sInstance;
+        if (s != null) s.clearCall();
+    }
+
+    private static float clampPct(float v) {
+        if (Float.isNaN(v)) return 0f;
+        return v < 0f ? 0f : (v > 100f ? 100f : v);
+    }
+
+    private void applyPositionNow(float px, float py) {
+        posX = clampPct(px);
+        posY = clampPct(py);
+        savePrefs();
+        applyPosition();
+    }
+
+    /** Puts the window at posX/posY of the free space on screen. */
+    private void applyPosition() {
+        if (lp == null) return;
+        try {
+            DisplayMetrics dm = getResources().getDisplayMetrics();
+            int baseTop = statusBarHeight() + dp(2);
+            int availX = Math.max(0, dm.widthPixels - lp.width);
+            int availY = Math.max(0, dm.heightPixels - baseTop - lp.height);
+            lp.gravity = Gravity.TOP | Gravity.LEFT;
+            lp.x = Math.round((posX / 100f) * availX);
+            lp.y = baseTop + Math.round((posY / 100f) * availY);
+            if (attached) wm.updateViewLayout(web, lp);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void applyCall(String name, String label,
+                           PendingIntent answer, PendingIntent decline, PendingIntent open) {
+        callAnswer = answer;
+        callDecline = decline;
+        callOpen = open;
+        pendingCall = new String[]{
+                name == null ? "Unknown" : name,
+                label == null ? "Incoming call" : label};
+        currentState = "incoming";
+        if (!pageReady) return;
+        eval("window.__call&&window.__call("
+                + JSONObject.quote(pendingCall[0]) + "," + JSONObject.quote(pendingCall[1]) + ")");
+        pendingCall = null;
+    }
+
+    private void clearCall() {
+        callAnswer = null;
+        callDecline = null;
+        callOpen = null;
+        pendingCall = null;
+        if ("incoming".equals(currentState) || "ongoing".equals(currentState)) currentState = "idle";
+        eval("window.__callEnd&&window.__callEnd()");
+    }
+
+    private void loadPrefs() {
+        try {
+            SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
+            posX = sp.getFloat("px", 50f);
+            posY = sp.getFloat("py", 0f);
+        } catch (Throwable ignored) {
+        }
+        if (hasPendingPos) {
+            posX = pendingX;
+            posY = pendingY;
+        }
+    }
+
+    private void savePrefs() {
+        try {
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                    .putFloat("px", posX).putFloat("py", posY).apply();
+        } catch (Throwable ignored) {
+        }
+    }
+
     public static void setHostInForeground(boolean inForeground) {
         IslandService s = sInstance;
         if (s != null) s.applyHostVisible(!inForeground);
@@ -193,6 +299,7 @@ public class IslandService extends Service {
 
             wm.addView(web, lp);
             attached = true;
+            applyPosition();
             web.loadUrl("file:///android_asset/overlay.html");
             RUNNING = true;
             lastError = "";
@@ -243,6 +350,7 @@ public class IslandService extends Service {
                     // the size is kept up to date even while detached, so the
                     // window is already right the moment it is re-attached
                     if (attached) wm.updateViewLayout(web, lp);
+                    applyPosition();
                 } catch (Throwable ignored) {
                 }
             }
@@ -304,6 +412,12 @@ public class IslandService extends Service {
                     pageReady = true;
                     eval("window.__setMax&&window.__setMax(" + maxWidthDp() + ")");
                     if (pendingState != null) applyState(pendingState);
+                    if (pendingCall != null) {
+                        eval("window.__call&&window.__call("
+                                + JSONObject.quote(pendingCall[0]) + ","
+                                + JSONObject.quote(pendingCall[1]) + ")");
+                        pendingCall = null;
+                    }
                     deliverNotification();
                 }
             });
@@ -326,6 +440,42 @@ public class IslandService extends Service {
                 MainActivity.vibrate(IslandService.this, kind);
             } catch (Throwable ignored) {
             }
+        }
+
+        @JavascriptInterface
+        public void setOverlayPosition(float px, float py) {
+            final float fx = clampPct(px), fy = clampPct(py);
+            ui.post(new Runnable() {
+                @Override
+                public void run() {
+                    applyPositionNow(fx, fy);
+                }
+            });
+        }
+
+        /** the green and red buttons: fire the phone's own answer / decline action */
+        @JavascriptInterface
+        public void callAction(String what) {
+            final boolean accept = "accept".equals(what);
+            ui.post(new Runnable() {
+                @Override
+                public void run() {
+                    PendingIntent pi = accept ? callAnswer : callDecline;
+                    if (pi != null) {
+                        try {
+                            pi.send();
+                            return;
+                        } catch (Throwable ignored) {
+                        }
+                    }
+                    if (accept && callOpen != null) {
+                        try {
+                            callOpen.send();
+                        } catch (Throwable ignored) {
+                        }
+                    }
+                }
+            });
         }
 
         @JavascriptInterface

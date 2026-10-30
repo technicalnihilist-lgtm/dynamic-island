@@ -132,6 +132,7 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
 
   var state='idle', lastOpen='music', swapT=null, token=0, notifT=null;
   var notifData=['','',''];
+  var callData={ name:'Maya Chen', label:'Incoming call…', real:false };
   var ti=0, playing=true, secs=0, callTick=null;
 
   var P={mic:'M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-3.1A7 7 0 0 0 19 11z',
@@ -154,8 +155,10 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
         '<span class="t2">'+esc(notifData[2]||notifData[0])+'</span></div>';
     },
     incoming:function(){
-      return '<div class="av">M</div>'+
-        '<div class="col"><span class="t1">Maya Chen</span><span class="t2">Incoming call…</span></div>'+
+      var n=String(callData.name||'Maya Chen');
+      return '<div class="av">'+esc(n.charAt(0).toUpperCase())+'</div>'+
+        '<div class="col"><span class="t1">'+esc(n)+'</span>'+
+        '<span class="t2">'+esc(callData.label||'Incoming call…')+'</span></div>'+
         '<button class="btn red" data-a="decline" aria-label="Decline">'+PHONE+'</button>'+
         '<button class="btn green" data-a="accept" aria-label="Accept">'+PHONE+'</button>';
     },
@@ -230,8 +233,14 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     var a=e.target.closest('[data-a]');
     if(a){
       var act=a.dataset.a;
-      if(act==='accept') setState('ongoing');
-      else if(act==='decline'||act==='end') setState('idle');
+      if(act==='accept'){
+        if(callData.real){ try{ if(N&&N.callAction) N.callAction('accept'); }catch(e){} callData.real=false; }
+        setState('ongoing');
+      }
+      else if(act==='decline'||act==='end'){
+        if(callData.real){ try{ if(N&&N.callAction) N.callAction('decline'); }catch(e){} callData.real=false; }
+        setState('idle');
+      }
       else if(act==='mute'||act==='speaker'){ a.classList.toggle('act'); spH.v+=24; kick(); haptic(); }
       else if(act==='play'){
         playing=!playing;
@@ -271,6 +280,14 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
   window.__reportSize=function(){
     settledW=Math.round(spW.x); settledH=Math.round(spH.x);
     resize(settledW, settledH);
+  };
+  window.__call=function(name,label){
+    callData={ name:(name||'Unknown'), label:(label||'Incoming call'), real:true };
+    setState('incoming');
+  };
+  window.__callEnd=function(){
+    callData.real=false;
+    if(state==='incoming'||state==='ongoing') setState('idle');
   };
   window.__notify=function(app,title,text){
     notifData=[app||'',title||'',text||''];

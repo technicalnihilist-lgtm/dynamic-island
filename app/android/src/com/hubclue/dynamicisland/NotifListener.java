@@ -1,6 +1,7 @@
 package com.hubclue.dynamicisland;
 
 import android.app.Notification;
+import android.app.PendingIntent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
@@ -27,12 +28,35 @@ public class NotifListener extends NotificationListenerService {
             Notification n = sbn.getNotification();
             if (n == null) return;
             Bundle ex = n.extras;
-            if (ex == null) return;
 
-            String title = text(ex.getCharSequence(Notification.EXTRA_TITLE));
-            String body = text(ex.getCharSequence(Notification.EXTRA_TEXT));
-            if (body == null) body = text(ex.getCharSequence(Notification.EXTRA_BIG_TEXT));
-            if (body == null) body = text(ex.getCharSequence(Notification.EXTRA_SUB_TEXT));
+            String title = ex == null ? null : text(ex.getCharSequence(Notification.EXTRA_TITLE));
+            String body = ex == null ? null : text(ex.getCharSequence(Notification.EXTRA_TEXT));
+            if (body == null && ex != null) body = text(ex.getCharSequence(Notification.EXTRA_BIG_TEXT));
+            if (body == null && ex != null) body = text(ex.getCharSequence(Notification.EXTRA_SUB_TEXT));
+
+            // A ringing call gets the island's incoming-call state, with the same
+            // green and red buttons as the demo - wired to the phone's own actions.
+            if (Notification.CATEGORY_CALL.equals(n.category)) {
+                PendingIntent answer = null, decline = null;
+                Notification.Action[] acts = n.actions;
+                if (acts != null) {
+                    for (Notification.Action a : acts) {
+                        if (a == null || a.actionIntent == null) continue;
+                        String t = a.title == null ? "" : a.title.toString().toLowerCase();
+                        if (answer == null && looksAnswer(t)) answer = a.actionIntent;
+                        else if (decline == null && looksDecline(t)) decline = a.actionIntent;
+                    }
+                    if (answer == null && decline == null && acts.length >= 2) {
+                        answer = acts[0].actionIntent;
+                        decline = acts[1].actionIntent;
+                    }
+                }
+                IslandService.showCall(title != null ? title : appLabel(pkg),
+                        body != null ? body : "Incoming call",
+                        answer, decline, n.contentIntent);
+                return;
+            }
+
             if (title == null && body == null) return;
             if (title == null) title = appLabel(pkg);
             if (body == null) body = "";
@@ -44,6 +68,30 @@ public class NotifListener extends NotificationListenerService {
             IslandService.showNotification(appLabel(pkg), title, body);
         } catch (Throwable ignored) {
         }
+    }
+
+    @Override
+    public void onNotificationRemoved(StatusBarNotification sbn) {
+        try {
+            if (sbn == null) return;
+            Notification n = sbn.getNotification();
+            if (n != null && Notification.CATEGORY_CALL.equals(n.category)) {
+                IslandService.endCall();
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static boolean looksAnswer(String t) {
+        String[] keys = {"answer", "accept", "pick up", "attend", "répondre", "उत्तर", "स्वीकार", "जवाब", "接听"};
+        for (String k : keys) if (t.contains(k)) return true;
+        return false;
+    }
+
+    private static boolean looksDecline(String t) {
+        String[] keys = {"decline", "reject", "end call", "hang up", "ignore", "काट", "अस्वीकार", "रद्द", "拒绝", "拒接"};
+        for (String k : keys) if (t.contains(k)) return true;
+        return false;
     }
 
     private static String text(CharSequence cs) {

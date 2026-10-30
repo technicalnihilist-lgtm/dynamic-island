@@ -25,7 +25,9 @@ window.Native = {
   resize: function(){ rec('resize', arguments); },
   stateChanged: function(){ rec('stateChanged', arguments); },
   setOverlayState: function(s){ rec('setOverlayState', [s]); },
-  setOverlayConfig: function(){ rec('setOverlayConfig', arguments); }
+  setOverlayConfig: function(){ rec('setOverlayConfig', arguments); },
+  setOverlayPosition: function(){ rec('setOverlayPosition', arguments); },
+  callAction: function(){ rec('callAction', arguments); }
 };
 """
 
@@ -137,6 +139,24 @@ with sync_playwright() as p:
         and pg.eval_on_selector("#content", "e=>e.innerHTML.length>50"))
     chk("no console/page errors", len(errs) == 0, errs[:3])
 
+    # ---- position -------------------------------------------------------
+    st = pg.eval_on_selector("#stage", "e=>{const r=e.getBoundingClientRect();return {x:r.x,w:r.width,bottom:r.bottom}}")
+    pg.eval_on_selector("#sx", "e=>{e.value=0;e.dispatchEvent(new Event('input',{bubbles:true}))}")
+    pg.wait_for_timeout(300)
+    chk("0% horizontal puts the island at the left edge",
+        abs(pg.eval_on_selector("#island", "e=>e.getBoundingClientRect().x") - st["x"]) < 8)
+    pg.eval_on_selector("#sx", "e=>{e.value=100;e.dispatchEvent(new Event('input',{bubbles:true}))}")
+    pg.wait_for_timeout(300)
+    chk("100% horizontal puts the island at the right edge",
+        abs((pg.eval_on_selector("#island", "e=>e.getBoundingClientRect().right")) - (st["x"] + st["w"])) < 8)
+    pg.eval_on_selector("#sy", "e=>{e.value=100;e.dispatchEvent(new Event('input',{bubbles:true}))}")
+    pg.wait_for_timeout(300)
+    chk("100% vertical puts the island at the bottom of the stage",
+        pg.eval_on_selector("#island", "e=>e.getBoundingClientRect().bottom") > st["bottom"] - 14)
+    chk("position reaches the floating window", "setOverlayPosition" in calls())
+    pg.eval_on_selector("#btnReset", "e=>e.click()")
+    pg.wait_for_timeout(1500)
+
     # ---- the size controls must survive a short screen -------------------
     small = b.new_context(viewport={"width": 360, "height": 640}, device_scale_factor=2, color_scheme="dark")
     small.add_init_script(MOCK)
@@ -183,6 +203,25 @@ with sync_playwright() as p:
     op.click("#island"); op.wait_for_timeout(1600)
     chk("tapping the overlay collapses it", near(obox(), 130, 38), obox())
     chk("overlay tells native when it changes state", "stateChanged" in op.evaluate("window.__calls.map(c=>c[0])"))
+
+    olast = lambda n: op.evaluate("(function(){var c=window.__calls.filter(x=>x[0]==='%s');return c.length?c[c.length-1]:null})()" % n)
+    op.evaluate("window.__call('Ravi Kumar','Incoming call')")
+    op.wait_for_timeout(1600)
+    chk("a real call opens the demo's incoming view", near(obox(), 312, 88), obox())
+    chk("the caller's name is shown", "Ravi" in op.eval_on_selector("#content", "e=>e.textContent"))
+    chk("there is one green accept button",
+        op.eval_on_selector_all("#content .btn.green", "els=>els.length") == 1)
+    chk("there is one red decline button",
+        op.eval_on_selector_all("#content .btn.red", "els=>els.length") == 1)
+    chk("the buttons are round and unlabelled, like the demo",
+        op.eval_on_selector("#content .btn.green", "e=>e.textContent.trim()") == ""
+        and op.eval_on_selector("#content .btn.green", "e=>Math.round(e.getBoundingClientRect().width)") == 42)
+    op.click("#content .btn.green")
+    op.wait_for_timeout(400)
+    chk("the green button answers the real call", olast("callAction")[1] == "accept", olast("callAction"))
+    op.evaluate("window.__callEnd()")
+    op.wait_for_timeout(1600)
+    chk("ending the call collapses the island", near(obox(), 130, 38), obox())
     op.evaluate("window.__setMax(240)"); op.evaluate("window.__setState('music')"); op.wait_for_timeout(1500)
     chk("overlay honours the max width it is given", obox()["w"] <= 240, obox())
     chk("overlay has no errors", len(oerrs) == 0, oerrs[:3])

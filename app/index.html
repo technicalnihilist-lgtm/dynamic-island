@@ -42,7 +42,7 @@ body{
 @keyframes drift{to{transform:translate(26px,-38px) scale(1.12)}}
 
 /* clock */
-.clockwrap{position:absolute;left:0;right:0;bottom:0;top:calc(var(--it) + 140px);overflow:hidden;
+.clockwrap{position:absolute;left:0;right:0;bottom:0;top:calc(var(--it) + 146px);overflow:hidden;
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
   pointer-events:none;text-shadow:0 2px 24px rgba(0,0,0,.25)}
 .date{font-size:15px;font-weight:500;color:rgba(255,255,255,.86);letter-spacing:.2px}
@@ -51,7 +51,8 @@ body{
 
 /* ---------- the island ---------- */
 .island{
-  position:absolute;top:calc(var(--it) + 2px);left:50%;
+  position:absolute;top:calc(var(--it) + 2px + var(--ioff-y,0px));
+  left:calc(50% + var(--ioff-x,0px));
   width:130px;height:38px;border-radius:19px;overflow:hidden;
   transform:translateX(-50%);transform-origin:top center;
   background:rgba(0,0,0,var(--a));
@@ -114,7 +115,7 @@ body{
   background:var(--panel);border-top:1px solid var(--line);
   -webkit-backdrop-filter:blur(24px);backdrop-filter:blur(24px);
   padding-bottom:calc(var(--ib) + 10px);
-  max-height:60vh;display:flex;flex-direction:column;overflow:hidden;
+  max-height:64vh;display:flex;flex-direction:column;overflow:hidden;
   border-radius:26px 26px 0 0;
   box-shadow:0 -12px 40px rgba(0,0,0,.35);
   transition:max-height .45s cubic-bezier(.3,1.25,.5,1)}
@@ -174,7 +175,7 @@ h2{margin:0 0 8px;font-size:12px;font-weight:600;color:var(--mute);
 .in{padding:0 14px 14px}
 
 .sl{display:grid;grid-template-columns:96px 1fr 46px;align-items:center;gap:10px;
-  margin:10px 0;font-size:13px;color:var(--ink)}
+  margin:6px 0;font-size:13px;color:var(--ink)}
 .sl output{color:var(--mute);text-align:right;font-variant-numeric:tabular-nums}
 input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:transparent;margin:0}
 .reset{width:100%;margin-top:6px;padding:10px;border-radius:99px;border:1px solid var(--line);
@@ -231,6 +232,13 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
     </div>
 
     <div class="card">
+      <h2>Position</h2>
+      <label class="sl" for="sx">Horizontal <input type="range" id="sx" min="0" max="100" value="50"><output for="sx"></output></label>
+      <label class="sl" for="sy">Vertical <input type="range" id="sy" min="0" max="100" value="0"><output for="sy"></output></label>
+      <p class="hint">Moves the floating island too. 50% / 0% is centred at the very top.</p>
+    </div>
+
+    <div class="card">
       <h2>Activity</h2>
       <div class="row" id="states">
         <button class="chip on" data-s="idle">Idle</button>
@@ -268,7 +276,7 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   function haptic(kind){ try{ if(N && N.haptic) N.haptic(kind||'light'); }catch(e){} }
 
   /* ============ persisted settings ============ */
-  var DEFAULTS = { wm:1, hm:1, rm:1, alpha:.75, blur:18, bounce:.65, on:false };
+  var DEFAULTS = { wm:1, hm:1, rm:1, alpha:.75, blur:18, bounce:.65, on:false, px:50, py:0 };
   var S = (function(){
     try{
       var raw = localStorage.getItem('di.settings');
@@ -349,6 +357,20 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
     if(settleT) clearTimeout(settleT);
     settleT = setTimeout(function(){ settleT = null; snapAll(); }, 1500);
   }
+  /* where the island sits inside the stage: the same percentages drive the
+     floating window, so what you set here is what you get out there */
+  function applyPos(){
+    var st = stage.getBoundingClientRect();
+    var w = Math.min(spW.t, st.width);
+    var h = Math.min(spH.t, st.height);
+    var availX = Math.max(0, st.width - w);
+    var availY = Math.max(0, st.height - h - 4);
+    var offX = (S.px/100)*availX - availX/2;
+    var offY = (S.py/100)*availY;
+    island.style.setProperty('--ioff-x', offX.toFixed(1)+'px');
+    island.style.setProperty('--ioff-y', offY.toFixed(1)+'px');
+  }
+
   function applyTargets(snap){
     var b = BASE[state] || BASE.idle;
     var vw = window.innerWidth || 360;
@@ -357,6 +379,7 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
     spR.t = Math.min(spH.t/2, 38)*S.rm;
     if(snap){ spW.x = spW.t; spH.x = spH.t; spR.x = spR.t; paint(); }
     else { kick(); armSettle(); }
+    applyPos();
   }
 
   /* ============ state machine ============ */
@@ -491,6 +514,11 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
       try{ N.setOverlayConfig(S.wm, S.hm, S.rm, S.bounce); }catch(e){}
     }
   }
+  function pushPosition(){
+    if(N && N.setOverlayPosition){
+      try{ N.setOverlayPosition(S.px, S.py); }catch(e){}
+    }
+  }
   function sysHint(){
     var el = $('#sysHint'), btn = $('#btnPerm');
     if(sys.err){
@@ -531,7 +559,7 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
       if(v && !sys.running){ try{ N.startOverlay(); }catch(e){} sys.running = true; }
       if(!v && sys.running){ try{ N.stopOverlay(); }catch(e){} sys.running = false; }
     }
-    if(v) setTimeout(pushConfig, 700);
+    if(v) setTimeout(function(){ pushConfig(); pushPosition(); }, 700);
     sysHint();
     kick();
     if(!silent) haptic('light');
@@ -561,7 +589,7 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
     b.setAttribute('aria-checked', S.on ? 'true' : 'false');
     $('#pwLabel').textContent = 'System-wide island: ' + (S.on ? 'On' : 'Off');
     island.style.pointerEvents = S.on ? 'none' : 'auto';
-    if(!wasRunning && sys.running) pushConfig();
+    if(!wasRunning && sys.running){ pushConfig(); pushPosition(); }
     sysHint();
   };
 
@@ -642,6 +670,8 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   sliders.sa = bind('sa', function(v){ S.alpha = (1-v/100)*0.95 + 0.04; island.style.setProperty('--a', S.alpha.toFixed(3)); });
   sliders.sb = bind('sb', function(v){ S.blur = v; island.style.setProperty('--b', v+'px'); }, function(v){ return v+'px'; });
   sliders.sk = bind('sk', function(v){ S.bounce = v/100; spW.v += 25; kick(); });
+  sliders.sx = bind('sx', function(v){ S.px = v; applyPos(); pushPosition(); });
+  sliders.sy = bind('sy', function(v){ S.py = v; applyPos(); pushPosition(); });
 
   function setSlider(id, val){
     var s = sliders[id]; if(!s) return;
@@ -654,10 +684,13 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
     setSlider('sa', Math.round((1 - (S.alpha-0.04)/0.95)*100));
     setSlider('sb', Math.round(S.blur));
     setSlider('sk', Math.round(S.bounce*100));
+    setSlider('sx', Math.round(S.px));
+    setSlider('sy', Math.round(S.py));
   }
   $('#btnReset').addEventListener('click', function(){
     for(var k in DEFAULTS) S[k] = DEFAULTS[k];
-    save(); loadSettingsIntoUI(); applyTargets(false); pushConfig(); spW.v += 30; kick(); haptic('medium');
+    save(); loadSettingsIntoUI(); applyTargets(false); pushConfig(); pushPosition();
+    spW.v += 30; kick(); haptic('medium');
   });
 
   /* accordion */
@@ -734,6 +767,7 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   loadSettingsIntoUI();
   setPower(!!S.on, true);
   applyTargets(true);
+  pushPosition();
   tickClock(); tickBattery();
   setInterval(tickClock, 1000);
   setInterval(tickBattery, 30000);
