@@ -27,6 +27,7 @@ public class NotifListener extends NotificationListenerService {
 
             Notification n = sbn.getNotification();
             if (n == null) return;
+            if (isSystemNoise(pkg, n, sbn)) return;
             Bundle ex = n.extras;
 
             String title = ex == null ? null : text(ex.getCharSequence(Notification.EXTRA_TITLE));
@@ -80,6 +81,37 @@ public class NotifListener extends NotificationListenerService {
             }
         } catch (Throwable ignored) {
         }
+    }
+
+    /**
+     * The island is for things the user actually wants to see. Persistent
+     * "app is running / displaying over other apps" notices from the system and
+     * from OEM security centres are not, and on MIUI one of them hijacks the
+     * island the moment the overlay starts.
+     */
+    private static final String[] BLOCKED_PACKAGES = {
+            "com.android.systemui", "com.miui.systemui", "com.miui.securitycenter",
+            "com.miui.packageinstaller", "com.android.packageinstaller",
+            "com.google.android.permissioncontroller", "com.android.permissioncontroller"
+    };
+
+    private static boolean isSystemNoise(String pkg, Notification n, StatusBarNotification sbn) {
+        for (String b : BLOCKED_PACKAGES) {
+            if (b.equals(pkg)) return true;
+        }
+        String cat = n.category;
+        boolean interesting = Notification.CATEGORY_CALL.equals(cat)
+                || Notification.CATEGORY_TRANSPORT.equals(cat)
+                || Notification.CATEGORY_MESSAGE.equals(cat)
+                || Notification.CATEGORY_EMAIL.equals(cat)
+                || Notification.CATEGORY_SOCIAL.equals(cat)
+                || Notification.CATEGORY_ALARM.equals(cat)
+                || Notification.CATEGORY_EVENT.equals(cat)
+                || Notification.CATEGORY_REMINDER.equals(cat);
+        // a quiet, ongoing notice is almost always a "something is running" line
+        if (sbn.isOngoing() && !interesting) return true;
+        if (n.priority < Notification.PRIORITY_DEFAULT && !interesting) return true;
+        return false;
     }
 
     private static boolean looksAnswer(String t) {

@@ -71,6 +71,10 @@ public class IslandService extends Service {
     private MediaController media;
     private String mediaPkg = "";
     private boolean showOnLock = true;
+    /* some OEM skins (MIUI, One UI) quietly push overlay windows down by the
+       status-bar height. We measure the real position once and subtract it. */
+    private int driftY = 0;
+    private int driftFixes = 0;
     private static boolean pendingLock = true;
     private static boolean hasPendingLock = false;
     private static IslandService sInstance;
@@ -287,13 +291,32 @@ public class IslandService extends Service {
         if (lp == null) return;
         try {
             DisplayMetrics dm = getResources().getDisplayMetrics();
-            int baseTop = statusBarHeight() + dp(2);
+            /* 0% must mean the same thing here as it does in the app's preview:
+               the absolute top of the screen, not below the status bar */
+            int baseTop = 0;
             int availX = Math.max(0, dm.widthPixels - lp.width);
             int availY = Math.max(0, dm.heightPixels - baseTop - lp.height);
             lp.gravity = Gravity.TOP | Gravity.LEFT;
             lp.x = Math.round((posX / 100f) * availX);
-            lp.y = baseTop + Math.round((posY / 100f) * availY);
+            int wantY = baseTop + Math.round((posY / 100f) * availY) - driftY;
+            lp.y = Math.max(-120, wantY);
             if (attached) wm.updateViewLayout(web, lp);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** compares where the window asked to be with where the system put it */
+    private void measureDrift() {
+        if (web == null || lp == null || !attached) return;
+        try {
+            int[] loc = new int[2];
+            web.getLocationOnScreen(loc);
+            int d = loc[1] - lp.y;
+            if (Math.abs(d) > 4 && driftFixes < 3) {
+                driftY += d;
+                driftFixes++;
+                applyPosition();
+            }
         } catch (Throwable ignored) {
         }
     }
@@ -357,7 +380,14 @@ public class IslandService extends Service {
                     try {
                         wm.addView(web, lp);
                         attached = true;
+                        driftFixes = 0;
                         eval("window.__reportSize&&window.__reportSize()");
+                        ui.postDelayed(new Runnable() {
+                            @Override
+                            public void run() {
+                                measureDrift();
+                            }
+                        }, 500);
                     } catch (Throwable ignored) {
                     }
                 } else if (!visible && attached) {
@@ -404,12 +434,18 @@ public class IslandService extends Service {
             lp = new WindowManager.LayoutParams(
                     dp(150), dp(48) + dp(PAD_DP), type, flags, PixelFormat.TRANSLUCENT);
             lp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
-            // hard against the top of the screen, just under the status bar
-            lp.y = statusBarHeight() + dp(2);
+            lp.y = 0;
 
             wm.addView(web, lp);
             attached = true;
+            driftFixes = 0;
             applyPosition();
+            ui.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    measureDrift();
+                }
+            }, 500);
             web.loadUrl("file:///android_asset/overlay.html");
             RUNNING = true;
             lastError = "";
