@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, maximum-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Island</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:transparent;overflow:hidden;
+  -webkit-tap-highlight-color:transparent;touch-action:manipulation;
+  font-family:-apple-system,"SF Pro Display","Helvetica Neue",Inter,system-ui,Roboto,sans-serif}
+
+.island{position:absolute;top:12px;left:50%;width:112px;height:32px;border-radius:16px;overflow:hidden;
+  transform:translateX(-50%);transform-origin:top center;
+  background:rgba(5,5,9,.95);
+  border:1px solid rgba(255,255,255,.16);
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.32),inset 0 -6px 12px rgba(255,255,255,.04),
+             0 10px 30px rgba(0,0,0,.5);
+  color:#fff;will-change:width,height,border-radius;cursor:pointer}
+.island::before{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+  background:linear-gradient(115deg,rgba(255,255,255,.22),rgba(255,255,255,0) 34%,
+             rgba(255,255,255,0) 70%,rgba(255,255,255,.1))}
+
+.content{position:absolute;inset:0;display:flex;align-items:center;gap:10px;padding:0 14px;
+  opacity:0;transform:scale(.9);
+  transition:opacity .16s ease,transform .34s cubic-bezier(.2,1.45,.4,1)}
+.content.in{opacity:1;transform:scale(1)}
+
+.col{display:flex;flex-direction:column;min-width:0;flex:1}
+.t1{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.t2{font-size:11.5px;color:rgba(255,255,255,.7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.av{width:40px;height:40px;border-radius:50%;flex:none;display:grid;place-items:center;
+  font-weight:600;font-size:16px;background:linear-gradient(135deg,#7aa7ff,#c07bff)}
+.av.sm{width:24px;height:24px;font-size:11px}
+
+.btn{width:38px;height:38px;border-radius:50%;border:0;color:#fff;display:grid;place-items:center;
+  cursor:pointer;flex:none;padding:0;transition:transform .25s cubic-bezier(.3,1.8,.5,1)}
+.btn:active{transform:scale(.84)}
+.btn svg{width:18px;height:18px;fill:#fff;pointer-events:none}
+.red{background:#ff453a}.green{background:#30d158}
+
+.wave{display:flex;gap:2px;align-items:center;height:18px}
+.wave i{width:3px;border-radius:2px;background:#30d158;animation:w .9s ease-in-out infinite}
+.wave i:nth-child(2){animation-delay:.15s}.wave i:nth-child(3){animation-delay:.3s}.wave i:nth-child(4){animation-delay:.45s}
+@keyframes w{0%,100%{height:5px}50%{height:18px}}
+.ring{width:10px;height:10px;border-radius:50%;background:#30d158;flex:none;animation:p 1.2s ease-out infinite}
+@keyframes p{0%{box-shadow:0 0 0 0 rgba(48,209,88,.7)}100%{box-shadow:0 0 0 10px rgba(48,209,88,0)}}
+.bars{display:flex;gap:2px;align-items:flex-end;height:16px;flex:none}
+.bars i{width:3px;height:8px;background:#ff6fa8;border-radius:2px;animation:w .7s ease-in-out infinite}
+.bars i:nth-child(2){animation-delay:.2s}.bars i:nth-child(3){animation-delay:.4s}
+.paused .bars i{animation-play-state:paused;height:6px}
+
+.rows{display:flex;flex-direction:column;gap:8px;width:100%}
+.r1{display:flex;align-items:center;gap:10px}
+.r2{display:flex;justify-content:space-around;align-items:center}
+.ib{width:38px;height:38px;border-radius:50%;border:0;background:rgba(255,255,255,.2);
+  display:grid;place-items:center;cursor:pointer;padding:0;
+  transition:transform .25s cubic-bezier(.3,1.8,.5,1),background .2s}
+.ib:active{transform:scale(.82)}
+.ib svg{width:18px;height:18px;fill:#fff;pointer-events:none}
+.ib.act{background:#fff}.ib.act svg{fill:#000}
+.ib.red{background:#ff453a}
+</style>
+</head>
+<body>
+<div class="island" id="island" role="group" aria-label="Dynamic Island"><div class="content" id="content"></div></div>
+<script>
+(function(){
+  'use strict';
+  var N = window.Native || null;
+  function resize(w,h){ try{ if(N && N.resize) N.resize(Math.round(w), Math.round(h)); }catch(e){} }
+  function haptic(k){ try{ if(N && N.haptic) N.haptic(k||'light'); }catch(e){} }
+  function callReady(){ try{ if(N && N.ready) N.ready(); }catch(e){} }
+
+  var island = document.getElementById('island'), content = document.getElementById('content');
+  var clamp = function(v,a,b){ return v<a?a:(v>b?b:v); };
+
+  var BASE = {
+    idle:{w:112,h:32}, notif:{w:280,h:84}, incoming:{w:272,h:78},
+    calling:{w:240,h:58}, ongoing:{w:276,h:104}, music:{w:276,h:112}
+  };
+  var S = { wm:1, hm:1, rm:1, bounce:.65 };
+
+  /* ---- springs ---- */
+  function Spring(v){ this.x=v; this.v=0; this.t=v; }
+  Spring.prototype.step=function(dt,k,z){
+    var c=2*z*Math.sqrt(k), n=4, h=dt/n;
+    for(var i=0;i<n;i++){ var a=-k*(this.x-this.t)-c*this.v; this.v+=a*h; this.x+=this.v*h; }
+    return Math.abs(this.x-this.t)>.05||Math.abs(this.v)>.05;
+  };
+  var spW=new Spring(112), spH=new Spring(32), spR=new Spring(16);
+  function zeta(){ return clamp(.95-.80*S.bounce,.12,1.02); }
+
+  var raf=null, lastT=0, settleT=null, settledW=112, settledH=32;
+  function paint(){
+    var w=clamp(spW.x,20,320), h=clamp(spH.x,14,220), r=clamp(spR.x,6,h/2);
+    island.style.width=w.toFixed(2)+'px';
+    island.style.height=h.toFixed(2)+'px';
+    island.style.borderRadius=r.toFixed(2)+'px';
+  }
+  function frame(now){
+    raf=null;
+    var dt=lastT?Math.min(.032,(now-lastT)/1000):.016; lastT=now;
+    var z=zeta(), moving=false;
+    if(spW.step(dt,175,z)) moving=true;
+    if(spH.step(dt,235,z)) moving=true;
+    if(spR.step(dt,175,z)) moving=true;
+    paint();
+    if(moving){ raf=requestAnimationFrame(frame); }
+    else {
+      lastT=0;
+      /* shrink the native window down to the island once it has stopped */
+      var w=Math.round(spW.x), h=Math.round(spH.x);
+      if(w!==settledW||h!==settledH){ settledW=w; settledH=h; resize(w,h); }
+    }
+  }
+  function kick(){ if(raf===null){ lastT=0; raf=requestAnimationFrame(frame); } }
+
+  var state='idle', lastOpen='music', swapT=null, token=0, notifT=null;
+  var notifData=['','',''];
+  var ti=0, playing=true, secs=0, callTick=null;
+
+  var P={mic:'M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-3.1A7 7 0 0 0 19 11z',
+    spk:'M3 9v6h4l5 5V4L7 9zm13.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4z',
+    play:'M8 5v14l11-7z', pause:'M6 5h4v14H6zm8 0h4v14h-4z',
+    prev:'M6 6h2v12H6zm3.5 6 8.5 6V6z', next:'M16 6h2v12h-2zM6 18l8.5-6L6 6z'};
+  function ic(k){ return '<svg viewBox="0 0 24 24"><path d="'+P[k]+'"/></svg>'; }
+  var PHONE='<svg viewBox="0 0 24 24"><path d="M6.6 10.8a15 15 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11 11 0 0 0 3.5.56 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.2.2 2.4.56 3.5a1 1 0 0 1-.25 1z"/></svg>';
+  var TRACKS=[['Glass Hours','Neon Tide'],['Soft Focus','Lumen'],['Bounce Theory','Spring Club']];
+
+  function esc(s){ return String(s).replace(/[&<>"]/g,function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+
+  var VIEWS={
+    idle:function(){ return ''; },
+    notif:function(){
+      var letter=(notifData[0]||'?').charAt(0).toUpperCase();
+      return '<div class="av">'+esc(letter)+'</div>'+
+        '<div class="col"><span class="t1">'+esc(notifData[1]||notifData[0])+'</span>'+
+        '<span class="t2">'+esc(notifData[2]||notifData[0])+'</span></div>';
+    },
+    incoming:function(){
+      return '<div class="av">M</div>'+
+        '<div class="col"><span class="t1">Maya Chen</span><span class="t2">Incoming call…</span></div>'+
+        '<button class="btn red" data-a="decline" aria-label="Decline">'+PHONE+'</button>'+
+        '<button class="btn green" data-a="accept" aria-label="Accept">'+PHONE+'</button>';
+    },
+    calling:function(){
+      return '<div class="av sm">J</div>'+
+        '<div class="col"><span class="t1">Calling Jordan…</span><span class="t2">Ringing</span></div>'+
+        '<button class="btn red" style="width:32px;height:32px" data-a="end" aria-label="End">'+PHONE+'</button>';
+    },
+    ongoing:function(){
+      return '<div class="rows"><div class="r1"><div class="ring"></div>'+
+        '<span class="t1" data-role="time" style="flex:1">00:00</span>'+
+        '<div class="wave"><i></i><i></i><i></i><i></i></div></div>'+
+        '<div class="r2">'+
+        '<button class="ib" data-a="mute" aria-label="Mute">'+ic('mic')+'</button>'+
+        '<button class="ib" data-a="speaker" aria-label="Speaker">'+ic('spk')+'</button>'+
+        '<button class="ib red" data-a="end" aria-label="End call">'+PHONE+'</button>'+
+        '</div></div>';
+    },
+    music:function(){
+      return '<div class="rows'+(playing?'':' paused')+'"><div class="r1">'+
+        '<div class="av" style="border-radius:12px;background:linear-gradient(135deg,#ff6fa8,#ffb35c)">♪</div>'+
+        '<div class="col"><span class="t1">'+TRACKS[ti][0]+'</span><span class="t2">'+TRACKS[ti][1]+'</span></div>'+
+        '<div class="bars"><i></i><i></i><i></i></div></div>'+
+        '<div class="r2">'+
+        '<button class="ib" data-a="prev" aria-label="Previous">'+ic('prev')+'</button>'+
+        '<button class="ib" data-a="play" aria-label="Play or pause">'+ic(playing?'pause':'play')+'</button>'+
+        '<button class="ib" data-a="next" aria-label="Next">'+ic('next')+'</button>'+
+        '</div></div>';
+    }
+  };
+
+  function targets(){
+    var b=BASE[state]||BASE.idle;
+    spW.t=Math.min(b.w*S.wm,300);
+    spH.t=b.h*S.hm;
+    spR.t=Math.min(spH.t/2,34)*S.rm;
+  }
+  function setState(next){
+    if(!BASE[next]) next='idle';
+    if(next!==state){ if(state!=='idle') lastOpen=state; state=next; }
+    if(callTick){ clearInterval(callTick); callTick=null; }
+    if(notifT){ clearTimeout(notifT); notifT=null; }
+    var beforeW=Math.max(spW.x,spW.t), beforeH=Math.max(spH.x,spH.t);
+    targets();
+    /* grow the native window first so nothing is clipped while it morphs */
+    var needW=Math.max(beforeW,spW.t), needH=Math.max(beforeH,spH.t);
+    if(needW>settledW||needH>settledH){ settledW=Math.round(needW); settledH=Math.round(needH); resize(settledW,settledH); }
+    kick();
+
+    var my=++token;
+    content.classList.remove('in');
+    if(swapT) clearTimeout(swapT);
+    swapT=setTimeout(function(){
+      if(my!==token) return;
+      content.innerHTML=VIEWS[state]();
+      if(state!=='idle') setTimeout(function(){ if(my===token) content.classList.add('in'); },20);
+      if(state==='ongoing'){
+        secs=0;
+        callTick=setInterval(function(){
+          secs++;
+          var t=content.querySelector('[data-role="time"]');
+          if(t) t.textContent=('0'+Math.floor(secs/60)).slice(-2)+':'+('0'+(secs%60)).slice(-2);
+        },1000);
+      }
+      if(state==='notif') notifT=setTimeout(function(){ setState('idle'); },7000);
+    }, state==='idle'?130:110);
+    haptic(state==='idle'?'light':'medium');
+  }
+
+  island.addEventListener('click',function(e){
+    var a=e.target.closest('[data-a]');
+    if(a){
+      var act=a.dataset.a;
+      if(act==='accept') setState('ongoing');
+      else if(act==='decline'||act==='end') setState('idle');
+      else if(act==='mute'||act==='speaker'){ a.classList.toggle('act'); spH.v+=24; kick(); haptic(); }
+      else if(act==='play'){
+        playing=!playing;
+        a.innerHTML=ic(playing?'pause':'play');
+        var rows=content.querySelector('.rows');
+        if(rows) rows.classList.toggle('paused',!playing);
+        spH.v+=24; kick(); haptic();
+      }
+      else if(act==='prev'||act==='next'){
+        ti=(ti+(act==='next'?1:TRACKS.length-1))%TRACKS.length;
+        var t1=content.querySelector('.col .t1'), t2=content.querySelector('.col .t2');
+        if(t1) t1.textContent=TRACKS[ti][0];
+        if(t2) t2.textContent=TRACKS[ti][1];
+        spW.v+=55; kick(); haptic();
+      }
+      e.stopPropagation();
+      return;
+    }
+    if(state==='idle'){ setState(lastOpen||'music'); spW.v+=240; spH.v+=160; kick(); }
+    else { setState('idle'); spW.v-=180; spH.v-=100; kick(); }
+    e.stopPropagation();
+  });
+
+  /* ---- hooks called from the native side ---- */
+  window.__setState=function(s){ setState(String(s)); };
+  window.__setConfig=function(wm,hm,rm,b){
+    if(typeof wm==='number') S.wm=wm;
+    if(typeof hm==='number') S.hm=hm;
+    if(typeof rm==='number') S.rm=rm;
+    if(typeof b==='number') S.bounce=b;
+    targets(); kick();
+  };
+  window.__notify=function(app,title,text){
+    notifData=[app||'',title||'',text||''];
+    setState('notif');
+  };
+
+  targets();
+  paint();
+  resize(Math.round(spW.t),Math.round(spH.t));
+  callReady();
+  setTimeout(function(){ spW.v+=180; spH.v+=70; kick(); },260);
+})();
+</script>
+</body>
+</html>

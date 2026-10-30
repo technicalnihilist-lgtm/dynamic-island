@@ -2,15 +2,19 @@ package com.hubclue.dynamicisland;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Insets;
+import android.net.Uri;
 import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
+import android.provider.Settings;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowInsets;
@@ -22,9 +26,8 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
 /**
- * Dynamic Island - a single-activity WebView shell around assets/index.html.
- * The shell only adds what a browser cannot: real system insets, real battery
- * level, real haptics and a sensible hardware back button.
+ * The control room. Holds the in-app preview of the island and the switch that
+ * turns the system-wide overlay on and off.
  */
 public class MainActivity extends Activity {
 
@@ -84,6 +87,19 @@ public class MainActivity extends Activity {
 
         setContentView(web);
         web.loadUrl("file:///android_asset/index.html");
+
+        askForNotificationPermission();
+    }
+
+    private void askForNotificationPermission() {
+        try {
+            if (Build.VERSION.SDK_INT >= 33 &&
+                    checkSelfPermission("android.permission.POST_NOTIFICATIONS")
+                            != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 11);
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     private void readInsets(WindowInsets insets) {
@@ -98,7 +114,80 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** Bridge exposed to the page as window.Native */
+    // ------------------------------------------------------------- the overlay
+
+    private boolean canDraw() {
+        try {
+            return Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(this);
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private boolean notifAccess() {
+        try {
+            String flat = Settings.Secure.getString(getContentResolver(), "enabled_notification_listeners");
+            return flat != null && flat.contains(getPackageName());
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private void askForOverlay() {
+        try {
+            startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + getPackageName())));
+        } catch (Throwable t) {
+            try {
+                startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION));
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    private void askForNotifAccess() {
+        try {
+            startActivity(new Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS"));
+        } catch (Throwable t) {
+            try {
+                startActivity(new Intent(Settings.ACTION_SETTINGS));
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    private void startIsland() {
+        if (!canDraw()) {
+            askForOverlay();
+            return;
+        }
+        try {
+            Intent i = new Intent(this, IslandService.class).setAction(IslandService.ACTION_START);
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(i);
+            else startService(i);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void stopIsland() {
+        try {
+            stopService(new Intent(this, IslandService.class));
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void pushSystemState() {
+        if (web == null) return;
+        String js = "window.__sysState&&window.__sysState("
+                + canDraw() + "," + IslandService.RUNNING + "," + notifAccess() + ")";
+        try {
+            web.evaluateJavascript(js, null);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    // ------------------------------------------------------------------ bridge
+
     public class Bridge {
 
         @JavascriptInterface
@@ -122,19 +211,105 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void haptic(String kind) {
-            try {
-                Vibrator v = (Vibrator) getSystemService(VIBRATOR_SERVICE);
-                if (v == null || !v.hasVibrator()) return;
-                boolean medium = "medium".equals(kind);
-                int ms = medium ? 18 : 10;
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    v.vibrate(VibrationEffect.createOneShot(ms, medium ? 150 : 90));
-                } else {
-                    v.vibrate(ms);
-                }
-            } catch (Exception ignored) {
-            }
+            vibrate(MainActivity.this, kind);
         }
+
+        @JavascriptInterface
+        public boolean canDrawOverlays() {
+            return canDraw();
+        }
+
+        @JavascriptInterface
+        public boolean overlayRunning() {
+            return IslandService.RUNNING;
+        }
+
+        @JavascriptInterface
+        public boolean hasNotifAccess() {
+            return notifAccess();
+        }
+
+        @JavascriptInterface
+        public void requestOverlay() {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    askForOverlay();
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void requestNotifAccess() {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    askForNotifAccess();
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void startOverlay() {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    startIsland();
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void stopOverlay() {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    stopIsland();
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void setOverlayState(String state) {
+            IslandService.setState(state);
+        }
+
+        @JavascriptInterface
+        public void setOverlayConfig(float wm, float hm, float rm, float bounce) {
+            IslandService.config(wm, hm, rm, bounce);
+        }
+    }
+
+    // ------------------------------------------------------------------ static
+
+    static void vibrate(Context ctx, String kind) {
+        try {
+            Vibrator v = (Vibrator) ctx.getSystemService(VIBRATOR_SERVICE);
+            if (v == null || !v.hasVibrator()) return;
+            boolean medium = "medium".equals(kind);
+            int ms = medium ? 18 : 10;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                v.vibrate(VibrationEffect.createOneShot(ms, medium ? 150 : 90));
+            } else {
+                v.vibrate(ms);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    // --------------------------------------------------------------- lifecycle
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (web != null) web.onResume();
+        pushSystemState();
+        web.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                pushSystemState();
+            }
+        }, 400);
     }
 
     @Override
@@ -158,12 +333,6 @@ public class MainActivity extends Activity {
     protected void onPause() {
         super.onPause();
         if (web != null) web.onPause();
-    }
-
-    @Override
-    protected void onResume() {
-        super.onResume();
-        if (web != null) web.onResume();
     }
 
     @Override

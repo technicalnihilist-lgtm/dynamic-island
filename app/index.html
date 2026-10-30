@@ -163,6 +163,17 @@ h2{margin:0 0 8px;font-size:12px;font-weight:600;color:var(--mute);
 .chip:focus-visible,.island:focus-visible,input:focus-visible,.tog:focus-visible,.grab:focus-visible{
   outline:2px solid var(--accent);outline-offset:2px}
 
+.hint{margin:8px 2px 0;font-size:12.5px;line-height:1.45;color:var(--mute)}
+.link{margin-top:10px;width:100%;padding:10px;border-radius:99px;border:1px solid var(--line);
+  background:transparent;color:var(--accent);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.link:active{background:rgba(255,255,255,.08)}
+.link[disabled]{color:var(--mute);opacity:.7}
+body.sysmode #island{visibility:hidden}
+.systip{position:absolute;top:calc(var(--it) + 44px);left:0;right:0;text-align:center;
+  font-size:12px;font-weight:500;color:rgba(255,255,255,.9);opacity:0;
+  transition:opacity .35s ease;pointer-events:none;text-shadow:0 1px 8px rgba(0,0,0,.45)}
+body.sysmode .systip{opacity:1}
+
 .acc{background:var(--panel2);border:1px solid var(--line);border-radius:22px;overflow:hidden}
 .hd{width:100%;display:flex;justify-content:space-between;align-items:center;
   background:none;border:0;padding:12px 14px;color:var(--ink);font-family:inherit;cursor:pointer}
@@ -205,6 +216,8 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
     </span>
   </div>
 
+  <div class="systip" id="systip">Live over your other apps</div>
+
   <div class="clockwrap">
     <div class="date" id="date">Friday, October 30</div>
     <div class="clock" id="clock">9:41</div>
@@ -220,9 +233,17 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   <div class="sheetBody" id="sheetBody">
 
     <div class="card">
-      <button class="tog" id="pw" role="switch" aria-checked="true">
-        <span id="pwLabel">Dynamic Island: On</span><b class="knob"></b>
+      <button class="tog" id="pw" role="switch" aria-checked="false">
+        <span id="pwLabel">System-wide island: Off</span><b class="knob"></b>
       </button>
+      <p class="hint" id="sysHint">Float the island over every app, not just this one.</p>
+      <button class="link" id="btnPerm" hidden>Grant permission</button>
+    </div>
+
+    <div class="card">
+      <h2>Notifications</h2>
+      <p class="hint" id="notifHint">Optional. Mirrors real notifications into the floating island.</p>
+      <button class="link" id="btnNotif">Allow notification access</button>
     </div>
 
     <div class="card">
@@ -270,7 +291,7 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   function haptic(kind){ try{ if(N && N.haptic) N.haptic(kind||'light'); }catch(e){} }
 
   /* ============ persisted settings ============ */
-  var DEFAULTS = { wm:1, hm:1, rm:1, alpha:.75, blur:18, bounce:.65, on:true };
+  var DEFAULTS = { wm:1, hm:1, rm:1, alpha:.75, blur:18, bounce:.65, on:false };
   var S = (function(){
     try{
       var raw = localStorage.getItem('di.settings');
@@ -440,7 +461,6 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   }
 
   function setState(next, snap){
-    if(!S.on && next !== 'idle') setPower(true, true);
     if(!BASE[next]) next = 'idle';
 
     if(next !== state){
@@ -467,6 +487,7 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
     }, wait);
 
     syncUI();
+    pushToOverlay();
     haptic(next === 'idle' ? 'light' : 'medium');
   }
 
@@ -480,26 +501,76 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
     live.textContent = LABEL[state] || '';
   }
 
-  /* ============ power ============ */
-  function setPower(v, silent){
-    S.on = !!v; save();
-    if(!v){
-      clearTimers();
-      if(state !== 'idle'){ lastOpen = state; state = 'idle'; content.innerHTML = ''; content.classList.remove('in'); }
-      applyTargets(false);
-      syncUI();
+  /* ============ system-wide overlay ============ */
+  var sys = { canDraw:false, running:false, notif:false };
+
+  function pushToOverlay(){
+    if(sys.running && N && N.setOverlayState){ try{ N.setOverlayState(state); }catch(e){} }
+  }
+  function pushConfig(){
+    if(sys.running && N && N.setOverlayConfig){
+      try{ N.setOverlayConfig(S.wm, S.hm, S.rm, S.bounce); }catch(e){}
     }
-    spS.t = v ? 1 : 0;
-    spS.v += v ? 3 : -1.6;
-    island.style.pointerEvents = v ? 'auto' : 'none';
-    island.setAttribute('aria-hidden', v ? 'false' : 'true');
-    island.tabIndex = v ? 0 : -1;
+  }
+  function sysHint(){
+    var el = $('#sysHint'), btn = $('#btnPerm');
+    if(!sys.canDraw){
+      el.textContent = 'Android needs "Display over other apps" before the island can float outside this app.';
+      btn.hidden = false; btn.textContent = 'Grant permission';
+    } else if(!S.on){
+      el.textContent = 'Permission granted. Switch it on and the island floats over every app.';
+      btn.hidden = true;
+    } else {
+      el.textContent = 'Live over your other apps. Press home or open anything else to see it.';
+      btn.hidden = true;
+    }
+    var nb = $('#btnNotif');
+    if(sys.notif){ nb.textContent = 'Notification access granted'; nb.disabled = true; }
+    else { nb.textContent = 'Allow notification access'; nb.disabled = false; }
+  }
+
+  function setPower(v, silent){
+    v = !!v;
+    if(v && !sys.canDraw){
+      if(!silent && N && N.requestOverlay){ try{ N.requestOverlay(); }catch(e){} }
+      v = false;
+    }
+    S.on = v; save();
+    document.body.classList.toggle('sysmode', v);
+    island.style.pointerEvents = v ? 'none' : 'auto';
+    island.setAttribute('aria-hidden', v ? 'true' : 'false');
+    island.tabIndex = v ? -1 : 0;
     var b = $('#pw');
     b.setAttribute('aria-checked', v ? 'true' : 'false');
-    $('#pwLabel').textContent = 'Dynamic Island: ' + (v ? 'On' : 'Off');
+    $('#pwLabel').textContent = 'System-wide island: ' + (v ? 'On' : 'Off');
+    if(N){
+      if(v && !sys.running){ try{ N.startOverlay(); }catch(e){} sys.running = true; }
+      if(!v && sys.running){ try{ N.stopOverlay(); }catch(e){} sys.running = false; }
+    }
+    if(v) setTimeout(pushConfig, 700);
+    sysHint();
     kick();
     if(!silent) haptic('light');
   }
+
+  window.__sysState = function(canDraw, running, notif){
+    sys.canDraw = !!canDraw;
+    sys.notif = !!notif;
+    var wasRunning = sys.running;
+    sys.running = !!running;
+    if(S.on && !sys.canDraw){ S.on = false; save(); }
+    if(S.on && sys.canDraw && !sys.running && N && N.startOverlay){
+      try{ N.startOverlay(); }catch(e){}   /* service died or phone rebooted */
+    }
+    if(!S.on && sys.running && N && N.stopOverlay){ try{ N.stopOverlay(); }catch(e){} }
+    document.body.classList.toggle('sysmode', !!S.on);
+    var b = $('#pw');
+    b.setAttribute('aria-checked', S.on ? 'true' : 'false');
+    $('#pwLabel').textContent = 'System-wide island: ' + (S.on ? 'On' : 'Off');
+    island.style.pointerEvents = S.on ? 'none' : 'auto';
+    if(!wasRunning && sys.running) pushConfig();
+    sysHint();
+  };
 
   /* ============ island interactions ============ */
   function openIsland(){ setState(state === 'idle' ? (lastOpen || 'music') : state); spW.v += 250; spH.v += 170; kick(); }
@@ -547,12 +618,17 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   $('#states').addEventListener('click', function(e){
     var b = e.target.closest('.chip');
     if(!b) return;
-    if(!S.on) setPower(true, true);
     setState(b.dataset.s);
   });
   $('#btnExpand').addEventListener('click', openIsland);
   $('#btnCollapse').addEventListener('click', closeIsland);
   $('#pw').addEventListener('click', function(){ setPower(!S.on); });
+  $('#btnPerm').addEventListener('click', function(){
+    if(N && N.requestOverlay){ try{ N.requestOverlay(); }catch(e){} }
+  });
+  $('#btnNotif').addEventListener('click', function(){
+    if(N && N.requestNotifAccess){ try{ N.requestNotifAccess(); }catch(e){} }
+  });
 
   /* sliders */
   function bind(id, apply, fmt){
@@ -563,7 +639,7 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
       out.textContent = fmt ? fmt(v) : v+'%';
     }
     el.addEventListener('input', go);
-    el.addEventListener('change', function(){ save(); haptic('light'); });
+    el.addEventListener('change', function(){ save(); pushConfig(); haptic('light'); });
     return { el: el, go: go };
   }
   var sliders = {};
@@ -588,7 +664,7 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   }
   $('#btnReset').addEventListener('click', function(){
     for(var k in DEFAULTS) S[k] = DEFAULTS[k];
-    save(); loadSettingsIntoUI(); applyTargets(false); spW.v += 30; kick(); haptic('medium');
+    save(); loadSettingsIntoUI(); applyTargets(false); pushConfig(); spW.v += 30; kick(); haptic('medium');
   });
 
   /* accordion */
@@ -653,7 +729,7 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
 
   /* ============ hooks used by the screenshot build ============ */
   window.__di = {
-    setState: function(s){ if(!S.on) setPower(true, true); setState(s); },
+    setState: function(s){ setState(s); },
     setPower: setPower,
     setSheet: setSheet,
     openAccordion: function(o){ var acc=$('#accLook'); acc.classList.toggle('closed', !o); $('#accHead').setAttribute('aria-expanded', o?'true':'false'); },
@@ -663,7 +739,7 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   /* ============ boot ============ */
   applyInsets();
   loadSettingsIntoUI();
-  setPower(S.on === false ? false : true, true);
+  setPower(!!S.on, true);
   applyTargets(true);
   tickClock(); tickBattery();
   setInterval(tickClock, 1000);

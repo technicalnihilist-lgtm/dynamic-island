@@ -14,8 +14,8 @@ BT="${BUILD_TOOLS:-$ANDROID_HOME/build-tools/34.0.0}"
 PLATFORM="$ANDROID_HOME/platforms/android-34/android.jar"
 [ -f "$PLATFORM" ] || { echo "missing $PLATFORM"; exit 1; }
 
-VERSION_CODE=1
-VERSION_NAME=1.0.0
+VERSION_CODE=2
+VERSION_NAME=1.1.0
 
 rm -rf "$BUILD"
 mkdir -p "$BUILD/compiled" "$BUILD/gen" "$BUILD/classes" "$BUILD/dex" "$DIST"
@@ -23,6 +23,7 @@ mkdir -p "$BUILD/compiled" "$BUILD/gen" "$BUILD/classes" "$BUILD/dex" "$DIST"
 echo "==> 0/6 stage the web app"
 mkdir -p "$ANDROID_DIR/assets"
 cp "$ROOT/index.html" "$ANDROID_DIR/assets/index.html"
+cp "$ROOT/overlay.html" "$ANDROID_DIR/assets/overlay.html"
 
 echo "==> 1/6 compile resources"
 "$BT/aapt2" compile --dir "$ANDROID_DIR/res" -o "$BUILD/compiled/res.zip"

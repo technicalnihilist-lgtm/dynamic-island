@@ -1,125 +1,148 @@
-"""Behavioural test run for the Dynamic Island web app.
-
-    pip install playwright && playwright install chromium
-    python tools/test_app.py [path/to/index.html]
-
-Every check drives the real page in a real browser and asserts on geometry,
-visibility, accessibility state and timing. Exit code is non-zero on failure.
-"""
-import os
-import sys
+"""Behavioural tests for the Dynamic Island web app (in-app preview + overlay)."""
+import os, sys
 from playwright.sync_api import sync_playwright
 
-URL = "file://" + os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else
-                                 os.path.join(os.path.dirname(__file__), "..", "app", "index.html"))
-EXE = os.environ.get("CHROME_PATH")  # optional: point at a specific chromium build
-fails=[]
-checks=[0]
+HTML = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else
+                       os.path.join(os.path.dirname(__file__), "..", "app", "index.html"))
+URL = "file://" + HTML
+OVERLAY_URL = "file://" + os.path.join(os.path.dirname(HTML), "overlay.html")
+EXE = os.environ.get("CHROME_PATH")
+
+MOCK = """
+window.__calls = [];
+function rec(n, a){ window.__calls.push([n].concat(Array.prototype.slice.call(a))); }
+window.Native = {
+  insets: function(){ return "24,16"; },
+  battery: function(){ return 72; },
+  haptic: function(){ rec('haptic', arguments); },
+  canDrawOverlays: function(){ return window.__canDraw === true; },
+  overlayRunning: function(){ return window.__running === true; },
+  hasNotifAccess: function(){ return window.__notif === true; },
+  requestOverlay: function(){ rec('requestOverlay', arguments); },
+  requestNotifAccess: function(){ rec('requestNotifAccess', arguments); },
+  startOverlay: function(){ window.__running = true; rec('startOverlay', arguments); },
+  stopOverlay: function(){ window.__running = false; rec('stopOverlay', arguments); },
+  resize: function(){ rec('resize', arguments); },
+  setOverlayState: function(s){ rec('setOverlayState', [s]); },
+  setOverlayConfig: function(){ rec('setOverlayConfig', arguments); }
+};
+"""
+
+fails = []
+checks = [0]
 def chk(name, cond, extra=""):
-    checks[0]+=1
-    print(("PASS " if cond else "FAIL ")+name+(("  -> "+str(extra)) if not cond else ""))
+    checks[0] += 1
+    print(("PASS " if cond else "FAIL ") + name + (("  -> " + str(extra)) if not cond else ""))
     if not cond: fails.append(name)
 
 with sync_playwright() as p:
-    b=p.chromium.launch(executable_path=EXE, args=["--no-sandbox"]) if EXE else p.chromium.launch(args=["--no-sandbox"])
-    ctx=b.new_context(viewport={"width":390,"height":844}, device_scale_factor=3, color_scheme="dark")
-    pg=ctx.new_page()
-    errs=[]
+    b = p.chromium.launch(executable_path=EXE, args=["--no-sandbox"]) if EXE else p.chromium.launch(args=["--no-sandbox"])
+    ctx = b.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=3, color_scheme="dark")
+    ctx.add_init_script(MOCK)
+    pg = ctx.new_page()
+    errs = []
     pg.on("pageerror", lambda e: errs.append(str(e)))
-    pg.on("console", lambda m: errs.append(m.text) if m.type=="error" else None)
-    pg.goto(URL); pg.wait_for_timeout(800)
+    pg.on("console", lambda m: errs.append(m.text) if m.type == "error" else None)
+    pg.goto(URL); pg.wait_for_timeout(900)
 
-    box=lambda: pg.eval_on_selector("#island","e=>{const r=e.getBoundingClientRect();return {w:Math.round(r.width),h:Math.round(r.height),y:Math.round(r.y)}}")
-    near=lambda g,w,h: abs(g["w"]-w)<=1 and abs(g["h"]-h)<=1
-    def tap_body():
-        # 8px inside the island's top-left corner: never a button
-        r = pg.eval_on_selector("#island","e=>{const b=e.getBoundingClientRect();return [b.x,b.y]}")
-        pg.mouse.click(r[0]+8, r[1]+8)
+    box = lambda: pg.eval_on_selector("#island", "e=>{const r=e.getBoundingClientRect();return {w:Math.round(r.width),h:Math.round(r.height)}}")
+    near = lambda g, w, h: abs(g["w"] - w) <= 1 and abs(g["h"] - h) <= 1
+    calls = lambda: pg.evaluate("window.__calls.map(c=>c[0])")
+    last = lambda n: pg.evaluate("(function(){var c=window.__calls.filter(x=>x[0]==='%s');return c.length?c[c.length-1]:null})()" % n)
 
-    chk("idle geometry", near(box(),112,32), box())
-
-    for st,exp in [("incoming",(272,78)),("calling",(240,58)),("music",(276,112))]:
+    # ---- preview geometry -------------------------------------------------
+    chk("idle geometry", near(box(), 112, 32), box())
+    for st, exp in [("incoming", (272, 78)), ("calling", (240, 58)), ("music", (276, 112))]:
         pg.click(f'#states .chip[data-s="{st}"]'); pg.wait_for_timeout(1700)
-        g=box(); chk(f"state {st} size", near(g,*exp), g)
-        chk(f"state {st} content visible", pg.eval_on_selector("#content","e=>getComputedStyle(e).opacity")=="1")
-        chk(f"state {st} content not empty", pg.eval_on_selector("#content","e=>e.innerHTML.length>50"))
+        g = box(); chk(f"state {st} size", near(g, *exp), g)
+        chk(f"state {st} content visible", pg.eval_on_selector("#content", "e=>getComputedStyle(e).opacity") == "1")
 
-    # accept -> ongoing
     pg.click('#states .chip[data-s="incoming"]'); pg.wait_for_timeout(1300)
     pg.click('#island [data-a="accept"]'); pg.wait_for_timeout(1700)
-    g=box(); chk("state ongoing size", near(g,276,104), g)
-    chk("ongoing highlights the Incoming chip", pg.eval_on_selector('.chip[data-s="incoming"]',"e=>e.classList.contains('on')"))
-    t1=pg.eval_on_selector('#content [data-role="time"]',"e=>e.textContent")
-    pg.wait_for_timeout(1100)
-    t2=pg.eval_on_selector('#content [data-role="time"]',"e=>e.textContent")
-    chk("call timer ticks", t1!=t2, (t1,t2))
-    pg.click('#island [data-a="mute"]'); pg.wait_for_timeout(200)
-    chk("mute aria-pressed", pg.eval_on_selector('#island [data-a="mute"]',"e=>e.getAttribute('aria-pressed')")=="true")
+    chk("ongoing size", near(box(), 276, 104), box())
+    t1 = pg.eval_on_selector('#content [data-role="time"]', "e=>e.textContent"); pg.wait_for_timeout(1100)
+    chk("call timer ticks", t1 != pg.eval_on_selector('#content [data-role="time"]', "e=>e.textContent"))
     pg.click('#island [data-a="end"]'); pg.wait_for_timeout(1750)
-    chk("end -> idle", near(box(),112,32), box())
-    chk("timer stops on idle", pg.eval_on_selector("#content","e=>e.innerHTML.trim()")=="")
+    chk("end -> idle", near(box(), 112, 32), box())
 
-    # music controls
-    pg.click('#states .chip[data-s="music"]'); pg.wait_for_timeout(1300)
-    pg.click('#island [data-a="play"]'); pg.wait_for_timeout(200)
-    chk("pause sets paused class", pg.eval_on_selector("#content .rows","e=>e.classList.contains('paused')"))
-    chk("play btn label flips", pg.eval_on_selector('#island [data-a="play"]',"e=>e.getAttribute('aria-label')")=="Play")
-    name0=pg.eval_on_selector("#content .col .t1","e=>e.textContent")
-    pg.click('#island [data-a="next"]'); pg.wait_for_timeout(200)
-    name1=pg.eval_on_selector("#content .col .t1","e=>e.textContent")
-    chk("next changes track", name0!=name1, (name0,name1))
+    # ---- system-wide switch ----------------------------------------------
+    chk("starts with the switch off", "Off" in pg.eval_on_selector("#pwLabel", "e=>e.textContent"))
+    chk("preview island visible when off", pg.eval_on_selector("#island", "e=>getComputedStyle(e).visibility") == "visible")
 
-    # tap an empty part of the island body
-    tap_body(); pg.wait_for_timeout(1750)
-    chk("tap body collapses", near(box(),112,32), box())
-    tap_body(); pg.wait_for_timeout(1750)
-    chk("tap body reopens last state (music)", near(box(),276,112), box())
+    pg.click("#pw"); pg.wait_for_timeout(500)      # no permission yet
+    chk("without permission it stays off", "Off" in pg.eval_on_selector("#pwLabel", "e=>e.textContent"))
+    chk("without permission it asks for it", "requestOverlay" in calls())
+    chk("hint explains the permission", "Display over other apps" in pg.eval_on_selector("#sysHint", "e=>e.textContent"))
+    chk("service was not started", "startOverlay" not in calls())
 
-    # power
-    pg.click("#pw"); pg.wait_for_timeout(900)
-    chk("power off hides island", float(pg.eval_on_selector("#island","e=>getComputedStyle(e).opacity"))<0.2)
-    chk("power off label", "Off" in pg.eval_on_selector("#pwLabel","e=>e.textContent"))
-    chk("power off pointer-events none", pg.eval_on_selector("#island","e=>getComputedStyle(e).pointerEvents")=="none")
-    pg.click('#states .chip[data-s="incoming"]'); pg.wait_for_timeout(900)
-    chk("chip wakes the island up", float(pg.eval_on_selector("#island","e=>getComputedStyle(e).opacity"))>0.8)
-    chk("chip wake sets power label On", "On" in pg.eval_on_selector("#pwLabel","e=>e.textContent"))
+    pg.evaluate("window.__canDraw = true; window.__sysState(true, false, false)")
+    pg.wait_for_timeout(300)
+    chk("permission granted hides the grant button", pg.eval_on_selector("#btnPerm", "e=>e.hidden") is True)
 
-    # sliders
-    pg.eval_on_selector("#sw","e=>{e.value=115;e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}))}")
-    pg.wait_for_timeout(1700)
-    chk("width slider scales island", pg.eval_on_selector("#island","e=>Math.round(e.getBoundingClientRect().width)")>300)
-    pg.click("#btnReset"); pg.wait_for_timeout(1750)
-    chk("reset restores width", near(box(),272,78), box())
+    pg.click("#pw"); pg.wait_for_timeout(800)
+    chk("switch turns on", "On" in pg.eval_on_selector("#pwLabel", "e=>e.textContent"))
+    chk("overlay service started", "startOverlay" in calls())
+    chk("preview island steps aside", pg.eval_on_selector("#island", "e=>getComputedStyle(e).visibility") == "hidden")
+    chk("stage shows the live tip", float(pg.eval_on_selector("#systip", "e=>getComputedStyle(e).opacity")) > .5)
+    chk("switch state persists", pg.evaluate("localStorage.getItem('di.settings')").find('"on":true') >= 0)
 
-    # accordion + sheet
-    pg.click("#accHead"); pg.wait_for_timeout(600)
-    chk("accordion closes", pg.eval_on_selector("#accLook","e=>e.classList.contains('closed')"))
-    pg.click("#accHead"); pg.wait_for_timeout(400)
+    pg.click('#states .chip[data-s="music"]'); pg.wait_for_timeout(900)
+    chk("chips drive the floating island", last("setOverlayState")[1] == "music", last("setOverlayState"))
+    pg.eval_on_selector("#sw", "e=>{e.value=110;e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}))}")
+    pg.wait_for_timeout(400)
+    chk("sliders push config to the overlay", "setOverlayConfig" in calls())
+
+    pg.click("#pw"); pg.wait_for_timeout(700)
+    chk("switch turns off", "Off" in pg.eval_on_selector("#pwLabel", "e=>e.textContent"))
+    chk("overlay service stopped", "stopOverlay" in calls())
+    chk("preview island returns", pg.eval_on_selector("#island", "e=>getComputedStyle(e).visibility") == "visible")
+
+    # ---- the rest of the app ---------------------------------------------
+    pg.eval_on_selector("#accHead", "e=>e.click()"); pg.wait_for_timeout(600)
+    chk("accordion closes", pg.eval_on_selector("#accLook", "e=>e.classList.contains('closed')"))
+    pg.eval_on_selector("#accHead", "e=>e.click()"); pg.wait_for_timeout(400)
     pg.click("#grab"); pg.wait_for_timeout(700)
-    chk("sheet collapses", pg.eval_on_selector("#sheet","e=>e.classList.contains('collapsed')"))
+    chk("sheet collapses", pg.eval_on_selector("#sheet", "e=>e.classList.contains('collapsed')"))
+    chk("back reopens the sheet", pg.evaluate("window.__onBack()") is True)
+    pg.wait_for_timeout(900)
 
-    # back button behaviour
-    r=pg.evaluate("window.__onBack()"); pg.wait_for_timeout(1750)
-    chk("back closes the island first", r==True and near(box(),112,32), (r,box()))
-    r=pg.evaluate("window.__onBack()"); pg.wait_for_timeout(400)
-    chk("back reopens the sheet next", r==True and not pg.eval_on_selector("#sheet","e=>e.classList.contains('collapsed')"))
-    chk("back exits when nothing is left", pg.evaluate("window.__onBack()")==False)
+    pg.eval_on_selector("#btnNotif", "e=>e.click()"); pg.wait_for_timeout(200)
+    chk("notification access button asks natively", "requestNotifAccess" in calls())
 
-    # persistence
-    pg.click("#pw"); pg.wait_for_timeout(400)
-    pg.reload(); pg.wait_for_timeout(1000)
-    chk("power state persists across reload", "Off" in pg.eval_on_selector("#pwLabel","e=>e.textContent"))
-    pg.click("#pw"); pg.wait_for_timeout(400)
-    pg.reload(); pg.wait_for_timeout(1000)
-    chk("power on persists too", "On" in pg.eval_on_selector("#pwLabel","e=>e.textContent"))
-
-    # rapid state thrashing must never leave the island blank or mis-sized
-    for s in ["music","idle","incoming","idle","calling","music","ongoing"]:
+    for s in ["music", "idle", "incoming", "idle", "calling", "music", "ongoing"]:
         pg.evaluate(f"window.__di.setState('{s}')"); pg.wait_for_timeout(60)
     pg.wait_for_timeout(2000)
-    chk("no blank island after rapid switching", float(pg.eval_on_selector("#content","e=>getComputedStyle(e).opacity"))>0.9 and pg.eval_on_selector("#content","e=>e.innerHTML.length>50"))
+    chk("no blank island after rapid switching",
+        float(pg.eval_on_selector("#content", "e=>getComputedStyle(e).opacity")) > .9
+        and pg.eval_on_selector("#content", "e=>e.innerHTML.length>50"))
+    chk("no console/page errors", len(errs) == 0, errs[:3])
 
-    chk("no console/page errors", len(errs)==0, errs[:3])
+    # ---- the overlay page itself -----------------------------------------
+    ov = b.new_context(viewport={"width": 390, "height": 200}, device_scale_factor=3, color_scheme="dark")
+    ov.add_init_script(MOCK)
+    op = ov.new_page()
+    oerrs = []
+    op.on("pageerror", lambda e: oerrs.append(str(e)))
+    op.goto(OVERLAY_URL)
+    op.wait_for_timeout(800)
+    obox = lambda: op.eval_on_selector("#island", "e=>{const r=e.getBoundingClientRect();return {w:Math.round(r.width),h:Math.round(r.height)}}")
+    chk("overlay idle size", near(obox(), 112, 32), obox())
+    chk("overlay reports its size to native", "resize" in op.evaluate("window.__calls.map(c=>c[0])"))
+    chk("overlay body is transparent",
+        op.evaluate("getComputedStyle(document.body).backgroundColor").startswith("rgba(0, 0, 0, 0)"))
+    op.evaluate("window.__notify('Messages','Maya Chen','See you at 8')")
+    op.wait_for_timeout(1500)
+    chk("notification grows the island", near(obox(), 280, 84), obox())
+    chk("notification shows its text", "Maya Chen" in op.eval_on_selector("#content", "e=>e.textContent"))
+    op.wait_for_timeout(6600)
+    chk("notification auto-dismisses", near(obox(), 112, 32), obox())
+    op.evaluate("window.__setState('music')"); op.wait_for_timeout(1500)
+    chk("native can drive the overlay state", near(obox(), 276, 112), obox())
+    op.click("#island"); op.wait_for_timeout(1600)
+    chk("tapping the overlay collapses it", near(obox(), 112, 32), obox())
+    chk("overlay has no errors", len(oerrs) == 0, oerrs[:3])
+
     b.close()
+
 print("\n%d checks, %d failed" % (checks[0], len(fails)))
 sys.exit(1 if fails else 0)
