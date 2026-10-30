@@ -3,3 +3,4 @@ app/android/assets/
 app/dist/*.idsig
 app/keystore/*.jks
 .DS_Store
+app/dist/
