@@ -207,6 +207,15 @@ with sync_playwright() as p:
     chk("notification grows the island", near(obox(), 318, 94), obox())
     chk("notification shows its text", "Maya Chen" in op.eval_on_selector("#content", "e=>e.textContent"))
     op.wait_for_timeout(6600)
+    # the springs are deliberately under-damped, so wait until the collapse has
+    # actually stopped moving instead of sampling it mid-bounce (this used to
+    # flake ~1 run in 3, sometimes passing through the right box on its way past)
+    prev = None
+    for _ in range(30):
+        g = obox()
+        if near(g, 130, 38) and g == prev: break
+        prev = g
+        op.wait_for_timeout(100)
     chk("notification auto-dismisses", near(obox(), 130, 38), obox())
     op.evaluate("window.__setState('music')"); op.wait_for_timeout(1500)
     chk("native can drive the overlay state", near(obox(), 318, 128), obox())
@@ -239,6 +248,29 @@ with sync_playwright() as p:
     chk("a playing song opens the music view", near(obox(), 318, 128), obox())
     chk("the real song title is shown", "Kesariya" in op.eval_on_selector("#content", "e=>e.textContent"))
     chk("the real artist is shown", "Arijit" in op.eval_on_selector("#content", "e=>e.textContent"))
+
+    # the service polls the player every 1.5s while it plays, and every report of
+    # an unchanged song used to rebuild the play icon from scratch
+    op.evaluate("""window.__svgRef = document.querySelector("#content [data-a='play'] svg")""")
+    op.evaluate("for(var i=0;i<3;i++) window.__music('Kesariya','Arijit Singh',true)")
+    op.wait_for_timeout(250)
+    chk("repeating the same song report rebuilds nothing",
+        op.evaluate("""document.querySelector("#content [data-a='play'] svg") === window.__svgRef"""))
+    chk("the song survives repeated reports",
+        "Kesariya" in op.eval_on_selector("#content", "e=>e.textContent"))
+    op.evaluate("window.__music('Kesariya','Arijit Singh',false)")
+    op.wait_for_timeout(250)
+    chk("a report that playback stopped still flips the icon",
+        op.eval_on_selector('#content [data-a="play"]', "e=>e.getAttribute('aria-label')") == "Play"
+        and op.eval_on_selector("#content .rows", "e=>e.classList.contains('paused')"))
+    op.evaluate("window.__music('Tum Hi Ho','Arijit Singh',true)")
+    op.wait_for_timeout(250)
+    chk("a new song still updates the text",
+        "Tum Hi Ho" in op.eval_on_selector("#content", "e=>e.textContent"))
+    chk("a report that playback resumed still flips the icon back",
+        op.eval_on_selector('#content [data-a="play"]', "e=>e.getAttribute('aria-label')") == "Pause")
+    op.evaluate("window.__music('Kesariya','Arijit Singh',true)")
+    op.wait_for_timeout(250)
     chk("there is a pause button while playing",
         op.eval_on_selector('#content [data-a="play"]', "e=>e.getAttribute('aria-label')") == "Pause")
     op.click('#content [data-a="play"]'); op.wait_for_timeout(300)

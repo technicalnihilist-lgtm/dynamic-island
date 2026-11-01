@@ -73,6 +73,9 @@ public class IslandService extends Service {
     /* real media, read straight out of the player's media session */
     private MediaController media;
     private String mediaPkg = "";
+    /* what the island was last told about the player, so an unchanged track is
+       not pushed into the WebView again on the next poll */
+    private String lastMediaSig = "";
     private boolean showOnLock = true;
     /* some OEM skins (MIUI, One UI) quietly push overlay windows down by the
        status-bar height. We measure the real position once and subtract it. */
@@ -250,6 +253,7 @@ public class IslandService extends Service {
                 if (mediaPkg.length() > 0) {
                     mediaPkg = "";
                     media = null;
+                    lastMediaSig = "";
                     eval("window.__musicEnd&&window.__musicEnd()");
                 }
                 return;
@@ -264,10 +268,18 @@ public class IslandService extends Service {
             boolean isPlaying = ps != null && ps.getState() == PlaybackState.STATE_PLAYING;
             /* poll briskly while something is playing, lazily when idle */
             mediaPollDelay = isPlaying ? 1500 : 6000;
-            eval("window.__music&&window.__music("
-                    + JSONObject.quote(title) + ","
-                    + JSONObject.quote(artist == null ? "" : artist) + ","
-                    + isPlaying + ")");
+            /* Reading the session is cheap; crossing into the WebView is not, and
+               the island rebuilds part of its DOM for every push. So only speak
+               when the track, the artist or the play state changed - or when the
+               island has moved on to something else and needs the player back. */
+            String sig = title + '\0' + (artist == null ? "" : artist) + '\0' + isPlaying;
+            if (!sig.equals(lastMediaSig) || !"music".equals(currentState)) {
+                lastMediaSig = sig;
+                eval("window.__music&&window.__music("
+                        + JSONObject.quote(title) + ","
+                        + JSONObject.quote(artist == null ? "" : artist) + ","
+                        + isPlaying + ")");
+            }
         } catch (Throwable ignored) {
         }
     }
@@ -483,6 +495,8 @@ public class IslandService extends Service {
                 }
             }, 500);
             web.loadUrl("file:///android_asset/overlay.html");
+            /* a brand new page has been told nothing yet */
+            lastMediaSig = "";
             RUNNING = true;
             lastError = "";
             // if the app is on screen right now, step aside until it leaves
@@ -514,6 +528,7 @@ public class IslandService extends Service {
         lp = null;
         pageReady = false;
         attached = false;
+        lastMediaSig = "";
     }
 
     /** JS reports the island box in CSS px, which is dp inside a WebView. */

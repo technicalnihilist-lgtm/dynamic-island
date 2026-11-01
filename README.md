@@ -74,7 +74,16 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (77 checks, all passing).
+reproduced, fixed and covered by `tools/test_app.py` (82 checks, all passing).
+
+### 1.7.1 — optimisation slot 1
+
+1. **The player is only pushed into the island when it changed.** The service reads the media session
+   every 1.5 s while something plays and used to re-send the same title, artist and play state to the
+   overlay on every one of those ticks — and the overlay rebuilt its play icon from scratch each time,
+   costing a style recalculation and a re-raster of the floating window every second and a half, for
+   ever. It now remembers what it last sent and stays quiet unless the track, the artist, the play
+   state, or the island's own view actually changed.
 
 ### 1.7.0 — the first optimisation pass
 
@@ -277,7 +286,7 @@ pip install playwright && playwright install chromium
 python tools/test_app.py
 ```
 
-77 checks against a real browser: geometry per state, the island at the absolute top, the position
+82 checks against a real browser: geometry per state, the island at the absolute top, the position
 sliders moving it to every edge, the lock-screen switch, content visibility, timer ticking,
 mute/pause/next, the system-wide switch (permission handling, service start/stop, the preview staying
 put, chips and sliders reaching the overlay, state mirroring in both directions), accordion, sheet,
@@ -285,7 +294,8 @@ back-button order, persistence, a rapid state-thrash test, the size controls sur
 screen, a broken overlay being reported instead of swallowed, and the overlay page itself — transparent
 body, size reporting, max-width handling, notification arrival and auto-dismiss, tap-to-collapse, a real
 call arriving with exactly one green and one red unlabelled button that fire the right action, and a real
-song whose pause, next and previous reach the player.
+song whose pause, next and previous reach the player, and repeated reports of an unchanged song
+leaving the island's DOM untouched.
 
 ## Project layout
 

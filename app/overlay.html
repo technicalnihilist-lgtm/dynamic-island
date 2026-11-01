@@ -326,8 +326,15 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     }
     var b=content.querySelector('[data-a="play"]');
     if(b){
-      b.innerHTML=ic(musicData.playing?'pause':'play');
-      b.setAttribute('aria-label', musicData.playing?'Pause':'Play');
+      /* the player is polled every couple of seconds and reports the same song
+         again and again; rebuilding the svg each time throws away a node and
+         forces a style recalc plus a re-raster of the whole window. The label
+         already says which icon belongs here, so only redraw when it changes. */
+      var label=musicData.playing?'Pause':'Play';
+      if(b.getAttribute('aria-label')!==label){
+        b.innerHTML=ic(musicData.playing?'pause':'play');
+        b.setAttribute('aria-label', label);
+      }
     }
     var rows=content.querySelector('.rows');
     if(rows) rows.classList.toggle('paused',!musicData.playing);
