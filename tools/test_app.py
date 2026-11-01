@@ -87,6 +87,20 @@ with sync_playwright() as p:
     chk("ongoing size", near(box(), 318, 118), box())
     t1 = pg.eval_on_selector('#content [data-role="time"]', "e=>e.textContent"); pg.wait_for_timeout(1100)
     chk("call timer ticks", t1 != pg.eval_on_selector('#content [data-role="time"]', "e=>e.textContent"))
+
+    # Expand while a call is already on screen re-entered the same state, which
+    # rebuilt the view and reset the call timer to 00:00
+    elapsed = lambda: pg.eval_on_selector(
+        '#content [data-role="time"]',
+        "e=>{const p=e.textContent.split(':');return (+p[0])*60+(+p[1])}")
+    pg.evaluate("window.__tNode = document.querySelector('#content .t1')")
+    was = elapsed()
+    pg.click("#btnExpand"); pg.wait_for_timeout(400)
+    chk("Expand during a call does not rebuild the call view",
+        pg.evaluate("document.querySelector('#content .t1') === window.__tNode"))
+    chk("Expand during a call does not restart the call timer", elapsed() >= was, (was, elapsed()))
+    pg.wait_for_timeout(1100)
+    chk("the call timer keeps counting after Expand", elapsed() > was, (was, elapsed()))
     pg.click('#island [data-a="end"]'); pg.wait_for_timeout(1750)
     chk("end -> idle", near(box(), 130, 38), box())
 
@@ -124,6 +138,10 @@ with sync_playwright() as p:
 
     pg.click('#states .chip[data-s="music"]'); pg.wait_for_timeout(900)
     chk("chips drive the floating island", last("setOverlayState")[1] == "music", last("setOverlayState"))
+    pushes = calls().count("setOverlayState")
+    pg.click('#states .chip[data-s="music"]'); pg.wait_for_timeout(400)
+    chk("tapping the chip you are already on pushes nothing to the floating island",
+        calls().count("setOverlayState") == pushes, calls().count("setOverlayState"))
     pg.eval_on_selector("#sw", "e=>{e.value=110;e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}))}")
     pg.wait_for_timeout(400)
     chk("sliders push config to the overlay", "setOverlayConfig" in calls())
@@ -269,6 +287,11 @@ with sync_playwright() as p:
     chk("notification auto-dismisses", near(obox(), 130, 38), obox())
     op.evaluate("window.__setState('music')"); op.wait_for_timeout(1500)
     chk("native can drive the overlay state", near(obox(), 318, 128), obox())
+    op.evaluate("window.__t1Node = document.querySelector('#content .t1')")
+    op.evaluate("window.__setState('music')"); op.wait_for_timeout(400)
+    chk("the overlay does not rebuild a view it is already showing",
+        op.evaluate("document.querySelector('#content .t1') === window.__t1Node"))
+    chk("a repeated state leaves the island the same size", near(obox(), 318, 128), obox())
     op.click("#island"); op.wait_for_timeout(1600)
     chk("tapping the overlay collapses it", near(obox(), 130, 38), obox())
     chk("overlay tells native when it changes state", "stateChanged" in op.evaluate("window.__calls.map(c=>c[0])"))

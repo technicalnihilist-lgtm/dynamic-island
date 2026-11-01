@@ -489,11 +489,16 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
 
   function setState(next, snap){
     if(!BASE[next]) next = 'idle';
+    /* Asking for the state that is already on screen used to tear the view
+       down and build it again: the island blinked out and back in, the call
+       timer restarted at 00:00 (Expand during a call did exactly that) and the
+       floating island was told to redo all of it. Nothing to do, so do nothing.
+       A new payload - a different caller, a different notification - arrives as
+       a different state, so this cannot swallow one. */
+    if(next === state) return;
 
-    if(next !== state){
-      if(state !== 'idle') lastOpen = state;   /* BUG FIX: keep the true previous state */
-      state = next;
-    }
+    if(state !== 'idle') lastOpen = state;     /* BUG FIX: keep the true previous state */
+    state = next;
     clearTimers();
 
     var token = ++swapToken;

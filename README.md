@@ -74,7 +74,20 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (87 checks, all passing).
+reproduced, fixed and covered by `tools/test_app.py` (93 checks, all passing).
+
+### 1.7.3 — optimisation slot 6
+
+1. **A state the island is already in no longer rebuilds the island.** Every `setState` tore the view
+   down, waited 110 ms and built it again from scratch — so pressing *Expand* during a call wiped the
+   call view and restarted the call timer at `00:00`, tapping the activity chip you were already on
+   blinked the island and pushed the same state into the floating window again, and the always-on
+   overlay window paid a fade, a DOM rebuild and a re-raster for a screen it was already showing. The
+   state is now only re-entered when it actually changes; the paths that carry a new payload (a
+   different caller, a different notification) say so explicitly and still redraw. Nothing on screen
+   changed — the suite asserts that Expand during a call keeps the same timer node and a rising count,
+   that a repeat chip tap sends no state to the overlay, and that a repeated state leaves the overlay's
+   nodes and size untouched.
 
 ### 1.7.2 — optimisation slot 5
 
@@ -296,7 +309,7 @@ pip install playwright && playwright install chromium
 python tools/test_app.py
 ```
 
-87 checks against a real browser: geometry per state, the island at the absolute top, the position
+93 checks against a real browser: geometry per state, the island at the absolute top, the position
 sliders moving it to every edge, the lock-screen switch, content visibility, timer ticking,
 mute/pause/next, the system-wide switch (permission handling, service start/stop, the preview staying
 put, chips and sliders reaching the overlay, state mirroring in both directions), accordion, sheet,

@@ -209,8 +209,13 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     spH.t=b.h*S.hm;
     spR.t=Math.min(spH.t/2,38)*S.rm;
   }
-  function setState(next){
+  /* `force` is for a repeated state that carries new data (another call, another
+     notification); a bare repeat of the state already on screen has nothing to
+     redraw, and rebuilding it costs a fade, a re-raster of the window and a
+     restart of the call timer. */
+  function setState(next, force){
     if(!BASE[next]) next='idle';
+    if(next===state && !force) return;
     if(next!==state){ if(state!=='idle') lastOpen=state; state=next; }
     if(callTick){ clearInterval(callTick); callTick=null; }
     if(notifT){ clearTimeout(notifT); notifT=null; }
@@ -308,7 +313,7 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
   };
   window.__call=function(name,label){
     callData={ name:(name||'Unknown'), label:(label||'Incoming call'), real:true };
-    setState('incoming');
+    setState('incoming', true);
   };
   window.__callEnd=function(){
     callData.real=false;
@@ -344,7 +349,7 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
   };
   window.__notify=function(app,title,text){
     notifData=[app||'',title||'',text||''];
-    setState('notif');
+    setState('notif', true);
   };
 
   recomputeDamping();
