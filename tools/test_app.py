@@ -33,6 +33,25 @@ window.Native = {
 };
 """
 
+CLOCK_FAKE = """
+(function(){
+  var RD = Date;
+  window.__off = 0;          /* test-controlled offset, in ms */
+  window.__dateCalls = 0;    /* how often the page built a Date */
+  window.__nowCalls = 0;
+  function FD(a,b,c,d,e,f,g){
+    window.__dateCalls++;
+    var n = arguments.length;
+    if(n === 0) return new RD(RD.now() + window.__off);
+    if(n === 1) return new RD(a);
+    return new RD(a, b, c === undefined ? 1 : c, d || 0, e || 0, f || 0, g || 0);
+  }
+  FD.now = function(){ window.__nowCalls++; return RD.now() + window.__off; };
+  FD.parse = RD.parse; FD.UTC = RD.UTC; FD.prototype = RD.prototype;
+  window.Date = FD;
+})();
+"""
+
 fails = []
 checks = [0]
 def chk(name, cond, extra=""):
@@ -185,6 +204,37 @@ with sync_playwright() as p:
         sp.eval_on_selector("#island", "e=>Math.round(e.getBoundingClientRect().width)") < 130,
         sp.eval_on_selector("#island", "e=>Math.round(e.getBoundingClientRect().width)"))
     small.close()
+
+    # ---- the wallpaper clock ---------------------------------------------
+    # it used to wake every second to redraw something that only changes once a
+    # minute, and to reformat the date string on every one of those wakeups
+    clk = b.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=3, color_scheme="dark")
+    clk.add_init_script(MOCK)
+    clk.add_init_script(CLOCK_FAKE)
+    cp = clk.new_page()
+    cerrs = []
+    cp.on("pageerror", lambda e: cerrs.append(str(e)))
+    cp.goto(URL); cp.wait_for_timeout(900)
+    hhmm = ("(function(){var d=new Date();var h=d.getHours()%12;if(h===0)h=12;"
+            "return h+':'+('0'+d.getMinutes()).slice(-2)})()")
+    clock_text = lambda: cp.eval_on_selector("#clock", "e=>e.textContent")
+    chk("the clock shows the current time", clock_text() == cp.evaluate(hhmm), clock_text())
+    chk("the date shows today",
+        cp.eval_on_selector("#date", "e=>e.textContent") ==
+        cp.evaluate("new Date().toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric'})"))
+    cp.evaluate("window.__dateCalls = 0; window.__nowCalls = 0")
+    cp.wait_for_timeout(4500)
+    woken = cp.evaluate("window.__dateCalls + window.__nowCalls")
+    chk("the clock wakes about once a minute, not every second", woken <= 2, woken)
+    before = clock_text()
+    cp.evaluate("window.__off += 3*60000")
+    cp.evaluate("window.dispatchEvent(new Event('focus'))")
+    cp.wait_for_timeout(150)
+    chk("coming back to the app refreshes a stale clock",
+        clock_text() == cp.evaluate(hhmm) and clock_text() != before,
+        (before, clock_text(), cp.evaluate(hhmm)))
+    chk("the clock page has no errors", len(cerrs) == 0, cerrs[:3])
+    clk.close()
 
     # ---- the overlay page itself -----------------------------------------
     ov = b.new_context(viewport={"width": 390, "height": 200}, device_scale_factor=3, color_scheme="dark")

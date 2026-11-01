@@ -74,7 +74,17 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (82 checks, all passing).
+reproduced, fixed and covered by `tools/test_app.py` (87 checks, all passing).
+
+### 1.7.2 — optimisation slot 5
+
+1. **The wallpaper clock wakes once a minute, not sixty times.** It only shows hours and minutes, so
+   59 of every 60 wakeups redrew exactly the same pixels — and each one also reformatted the date
+   string through `toLocaleDateString` for a value that changes at midnight. It now sets one timer for
+   the next minute boundary, and refreshes immediately on `visibilitychange` and `focus` so a clock
+   that was frozen while the app sat in the background is never up to a minute stale when you come
+   back. Nothing on screen moved: the suite asserts the same time, the same date, and that the page
+   builds at most two `Date`s in four and a half seconds instead of eight.
 
 ### 1.7.1 — optimisation slot 1
 
@@ -286,7 +296,7 @@ pip install playwright && playwright install chromium
 python tools/test_app.py
 ```
 
-82 checks against a real browser: geometry per state, the island at the absolute top, the position
+87 checks against a real browser: geometry per state, the island at the absolute top, the position
 sliders moving it to every edge, the lock-screen switch, content visibility, timer ticking,
 mute/pause/next, the system-wide switch (permission handling, service start/stop, the preview staying
 put, chips and sliders reaching the overlay, state mirroring in both directions), accordion, sheet,

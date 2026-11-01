@@ -774,11 +774,25 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
     var ds = d.toLocaleDateString(undefined, { weekday:'long', month:'long', day:'numeric' });
     if(ds !== lastDate){ elDate.textContent = ds; lastDate = ds; }
   }
-  /* wake exactly on the second instead of every drifting 1000ms tick */
+  /* The clock shows hours and minutes, so it only has to wake when the minute
+     changes. It used to wake on every second - 59 wakeups out of 60 produced
+     exactly the same pixels, and each one formatted the date string as well.
+     One timer per minute, aligned to the minute boundary. */
+  var clockT = null;
   function scheduleClock(){
-    var delay = 1000 - (Date.now() % 1000) + 10;
-    setTimeout(function(){ tickClock(); scheduleClock(); }, delay);
+    if(clockT) clearTimeout(clockT);
+    var delay = 60000 - (Date.now() % 60000) + 10;
+    clockT = setTimeout(function(){ clockT = null; tickClock(); scheduleClock(); }, delay);
   }
+  /* a backgrounded page has its timers throttled or frozen, so on return the
+     clock could sit up to a minute behind; refresh the moment we are back */
+  function refreshClock(){
+    if(clockT){ clearTimeout(clockT); clockT = null; }
+    tickClock();
+    scheduleClock();
+  }
+  document.addEventListener('visibilitychange', function(){ if(!document.hidden) refreshClock(); });
+  window.addEventListener('focus', refreshClock);
   function tickBattery(){
     var pct = null;
     try{ if(N && N.battery) pct = N.battery(); }catch(e){}
