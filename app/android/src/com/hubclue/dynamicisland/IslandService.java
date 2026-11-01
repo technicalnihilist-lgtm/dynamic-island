@@ -6,8 +6,11 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.ServiceInfo;
 import android.graphics.Color;
@@ -75,6 +78,10 @@ public class IslandService extends Service {
        status-bar height. We measure the real position once and subtract it. */
     private int driftY = 0;
     private int driftFixes = 0;
+    private final int[] locTmp = new int[2];
+    private float density = 2f;
+    private boolean screenOn = true;
+    private long mediaPollDelay = 6000;
     private static boolean pendingLock = true;
     private static boolean hasPendingLock = false;
     private static IslandService sInstance;
@@ -96,7 +103,15 @@ public class IslandService extends Service {
         super.onCreate();
         sInstance = this;
         wm = (WindowManager) getSystemService(WINDOW_SERVICE);
+        density = getResources().getDisplayMetrics().density;
         loadPrefs();
+        try {
+            IntentFilter f = new IntentFilter();
+            f.addAction(Intent.ACTION_SCREEN_ON);
+            f.addAction(Intent.ACTION_SCREEN_OFF);
+            registerReceiver(screenRx, f);
+        } catch (Throwable ignored) {
+        }
         if (hasPendingLock) showOnLock = pendingLock;
     }
 
@@ -120,13 +135,17 @@ public class IslandService extends Service {
         }
         if (web == null) addOverlay();
         ui.removeCallbacks(mediaTick);
-        ui.postDelayed(mediaTick, 2500);
+        if (screenOn) ui.postDelayed(mediaTick, 2500);
         return START_STICKY;
     }
 
     @Override
     public void onDestroy() {
         ui.removeCallbacks(mediaTick);
+        try {
+            unregisterReceiver(screenRx);
+        } catch (Throwable ignored) {
+        }
         removeOverlay();
         RUNNING = false;
         sInstance = null;
@@ -190,7 +209,23 @@ public class IslandService extends Service {
         @Override
         public void run() {
             pollMedia();
-            ui.postDelayed(this, 2000);
+            ui.postDelayed(this, mediaPollDelay);
+        }
+    };
+
+    /* no point reading media sessions while the screen is off */
+    private final BroadcastReceiver screenRx = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context ctx, Intent intent) {
+            String a = intent == null ? "" : intent.getAction();
+            if (Intent.ACTION_SCREEN_OFF.equals(a)) {
+                screenOn = false;
+                ui.removeCallbacks(mediaTick);
+            } else if (Intent.ACTION_SCREEN_ON.equals(a)) {
+                screenOn = true;
+                ui.removeCallbacks(mediaTick);
+                ui.postDelayed(mediaTick, 400);
+            }
         }
     };
 
@@ -227,6 +262,8 @@ public class IslandService extends Service {
             if (title == null) title = mediaPkg;
             PlaybackState ps = target.getPlaybackState();
             boolean isPlaying = ps != null && ps.getState() == PlaybackState.STATE_PLAYING;
+            /* poll briskly while something is playing, lazily when idle */
+            mediaPollDelay = isPlaying ? 1500 : 6000;
             eval("window.__music&&window.__music("
                     + JSONObject.quote(title) + ","
                     + JSONObject.quote(artist == null ? "" : artist) + ","
@@ -309,9 +346,8 @@ public class IslandService extends Service {
     private void measureDrift() {
         if (web == null || lp == null || !attached) return;
         try {
-            int[] loc = new int[2];
-            web.getLocationOnScreen(loc);
-            int d = loc[1] - lp.y;
+            web.getLocationOnScreen(locTmp);
+            int d = locTmp[1] - lp.y;
             if (Math.abs(d) > 4 && driftFixes < 3) {
                 driftY += d;
                 driftFixes++;
@@ -685,7 +721,7 @@ public class IslandService extends Service {
     // ------------------------------------------------------------------ utils
 
     private int dp(int v) {
-        return Math.round(v * getResources().getDisplayMetrics().density);
+        return Math.round(v * density);
     }
 
     private int maxWidthDp() {

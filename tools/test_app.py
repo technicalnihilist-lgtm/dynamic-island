@@ -144,15 +144,15 @@ with sync_playwright() as p:
     # ---- position -------------------------------------------------------
     st = pg.eval_on_selector("#stage", "e=>{const r=e.getBoundingClientRect();return {x:r.x,w:r.width,bottom:r.bottom}}")
     pg.eval_on_selector("#sx", "e=>{e.value=0;e.dispatchEvent(new Event('input',{bubbles:true}))}")
-    pg.wait_for_timeout(300)
+    pg.wait_for_timeout(700)
     chk("0% horizontal puts the island at the left edge",
         abs(pg.eval_on_selector("#island", "e=>e.getBoundingClientRect().x") - st["x"]) < 8)
     pg.eval_on_selector("#sx", "e=>{e.value=100;e.dispatchEvent(new Event('input',{bubbles:true}))}")
-    pg.wait_for_timeout(300)
+    pg.wait_for_timeout(700)
     chk("100% horizontal puts the island at the right edge",
         abs((pg.eval_on_selector("#island", "e=>e.getBoundingClientRect().right")) - (st["x"] + st["w"])) < 8)
     pg.eval_on_selector("#sy", "e=>{e.value=100;e.dispatchEvent(new Event('input',{bubbles:true}))}")
-    pg.wait_for_timeout(300)
+    pg.wait_for_timeout(700)
     chk("100% vertical puts the island at the bottom of the stage",
         pg.eval_on_selector("#island", "e=>e.getBoundingClientRect().bottom") > st["bottom"] - 14)
     chk("position reaches the floating window", "setOverlayPosition" in calls())

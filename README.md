@@ -58,7 +58,7 @@ from the sheet at the bottom — which drives the floating island too when it is
 
 ## Install
 
-Download `DynamicIsland-1.6.0.apk` and open it. Android will ask you to allow installs from your
+Download `DynamicIsland-1.7.0.apk` and open it. Android will ask you to allow installs from your
 browser or file manager — normal for anything that is not from the Play Store. The APK is signed
 (v2 + v3) and targets Android 14 (API 34), minimum Android 7.0 (API 24).
 
@@ -76,16 +76,41 @@ Any earlier version installs straight over the top — same signing key.
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
 reproduced, fixed and covered by `tools/test_app.py` (77 checks, all passing).
 
+### 1.7.0 — the first optimisation pass
+
+Ten changes, all under the hood. Nothing looks different.
+
+1. **Spring damping is precomputed.** It only changes when the bounce slider moves, so `2·ζ·√k` is
+   calculated once per change instead of once per spring per frame — four square roots per frame, gone.
+2. **The render loop only writes styles that changed.** Transform and opacity are constant through a
+   morph, so two of the five writes per frame are skipped.
+3. **A real rendering bug, found by the test suite:** the stage used `overflow: hidden`, which still
+   allows a container to be scrolled. When the island sat near an edge the stage could scroll by a few
+   pixels and drag the island off-centre — intermittently, which is exactly how it hid for so long.
+   `overflow: clip` removes the scroll container entirely.
+4. **The clock wakes on the second**, not on a drifting 1000 ms interval, and skips the DOM write when
+   the minute has not changed.
+5. **Slider input is coalesced to one update per frame** instead of one per `input` event, so dragging
+   a slider no longer queues dozens of layout passes.
+6. **The island is repositioned when a morph settles**, so the offsets are always computed against the
+   final width rather than a mid-animation one.
+7. **Media polling adapts:** every 1.5 s while something is playing, every 6 s when idle, and it stops
+   completely while the screen is off.
+8. **The service caches display density** instead of asking the resources for it on every conversion.
+9. **`measureDrift` reuses one buffer** instead of allocating an `int[2]` on each call.
+10. **`tools/env.sh`** now bootstraps a JDK and the Android SDK, so a fresh machine (or a scheduled run
+    in a clean sandbox) can build the APK with one `source`.
+
 ### 1.6.0 — the preview and the floating island now agree
 
-1. **The floating island sat lower than the preview.** The app drew it at `y = 0` for 0% vertical
+11. **The floating island sat lower than the preview.** The app drew it at `y = 0` for 0% vertical
    while the overlay window added the status-bar height on top, so the same setting produced two
    different positions. Both are `y = 0` now.
-2. **MIUI (and friends) quietly push overlay windows down.** The window now measures where the system
+12. **MIUI (and friends) quietly push overlay windows down.** The window now measures where the system
    actually put it with `getLocationOnScreen`, compares that with what it asked for, and subtracts the
    difference — up to three times, then it stops. That absorbs the OEM inset without you having to
    fight the slider.
-3. **MIUI's own "Dynamic Island is displaying over other apps" notice hijacked the island.** The
+13. **MIUI's own "Dynamic Island is displaying over other apps" notice hijacked the island.** The
    notification listener now drops persistent system notices: a blocklist for system UI, security
    centre and permission-controller packages, plus a rule that a quiet, ongoing notification which is
    not a call, transport, message, alarm or reminder is not worth showing. Your own notifications and
@@ -93,29 +118,29 @@ reproduced, fixed and covered by `tools/test_app.py` (77 checks, all passing).
 
 ### 1.5.0 — higher, on the lock screen, and it runs your music
 
-4. **Position reaches the absolute top.** Vertical 0% is now y = 0 — the island can sit over the
+14. **Position reaches the absolute top.** Vertical 0% is now y = 0 — the island can sit over the
    status bar, not just under it — and the whole range is live in both the preview and the floating
    window.
-5. **It shows on the lock screen.** The overlay window carries `FLAG_SHOW_WHEN_LOCKED`, with a
+15. **It shows on the lock screen.** The overlay window carries `FLAG_SHOW_WHEN_LOCKED`, with a
    "Show on lock screen" switch in the Position card so you can turn it off. Honest caveat: whether an
    overlay may join the keyguard is up to the OEM, so on some phones the lock screen still wins.
-6. **Real music, not a demo.** With notification access the app reads the active `MediaSession` — the
+16. **Real music, not a demo.** With notification access the app reads the active `MediaSession` — the
    same mechanism the system's own media controls use — and puts the playing song's title and artist in
    the island with previous / play-pause / next. Those three buttons drive the actual player through
    `TransportControls`, so pause really pauses and next really skips. When the player goes away the
    island collapses. The demo still works when nothing is playing.
-7. **Bouncier morph.** Default bounce is up to 72%, and every state change now gets a velocity kick in
+17. **Bouncier morph.** Default bounce is up to 72%, and every state change now gets a velocity kick in
    the direction of travel, so a big jump overshoots more than a small one instead of every morph
    feeling the same.
-8. Fixed on the way: the play/pause button's `aria-label` did not follow its icon after a tap.
+18. Fixed on the way: the play/pause button's `aria-label` did not follow its icon after a tap.
 
 ### 1.4.0 — put it anywhere, and answer real calls from it
 
-9. **Position is yours now.** Two sliders — horizontal and vertical, 0–100% — place the island
+19. **Position is yours now.** Two sliders — horizontal and vertical, 0–100% — place the island
    anywhere on the screen. They drive the preview *and* the floating window from the same numbers, so
    what you set is what you get out there, and the choice is remembered. 50% / 0% is centred at the
    very top.
-10. **A real incoming call now gets the demo's buttons.** The notification listener recognises
+20. **A real incoming call now gets the demo's buttons.** The notification listener recognises
    `CATEGORY_CALL` notifications and switches the island to the incoming-call view — the same green
    accept and red decline circles as the demo, same phone glyph, no text labels — with the caller's
    name and line from the notification. The two buttons fire the dialer's *own* answer and decline
@@ -125,102 +150,102 @@ reproduced, fixed and covered by `tools/test_app.py` (77 checks, all passing).
 
 ### 1.3.0 — it actually runs over other apps now, at the top
 
-11. **The overlay never stayed on screen.** The hand-off between the app and the floating window was
+21. **The overlay never stayed on screen.** The hand-off between the app and the floating window was
    inverted: `onPause` — which fires the moment you leave the app — *detached* the window, and
    `onResume` attached it. So switching it on and pressing home made the island vanish, which is
    exactly when it should have appeared. The two calls are now one method with an unambiguous name,
    `setHostInForeground(boolean)`, and the service also checks a `VISIBLE` flag when it starts so the
    window never flashes over the app you just turned it on from.
-12. **The island sat 40dp down the screen.** The app was drawing its own fake status bar underneath the
+22. **The island sat 40dp down the screen.** The app was drawing its own fake status bar underneath the
    real Android one — two clocks, two battery icons — and parked the island below that. The fake bar is
    gone and the island now hugs the top edge, at the status-bar inset + 2dp. The overlay window does
    the same: `y = statusBarHeight + 2dp` with the island at 0 inside it.
-13. **The overlay window could keep its default size.** `resize` bailed out whenever the view was
+23. **The overlay window could keep its default size.** `resize` bailed out whenever the view was
    detached, so a window that started while the app was in front never picked up the island's real
    size. The size is now always kept current and only the `updateViewLayout` call is gated.
-14. **Failures were silent.** If the window could not be added — permission revoked mid-flight, an OEM
+24. **Failures were silent.** If the window could not be added — permission revoked mid-flight, an OEM
    blocking overlays, a bad token — the service just stopped and the app showed "On" over nothing. The
    reason is now carried back into the app and printed under the switch.
 
 ### 1.2.0 — the settings that vanished, and a bigger island
 
-15. **The size controls could disappear.** The sheet is a flex column, and flex children shrink by
+25. **The size controls could disappear.** The sheet is a flex column, and flex children shrink by
    default. Once the content was taller than the sheet, the tallest card — the one holding width,
    height, corner, opacity, blur and bounce — was squeezed to a 2px sliver instead of the sheet
    scrolling. Everything else looked fine, which is what made it so confusing. Fixed with
    `flex: 0 0 auto` on the sheet's children, and there is now a test that asserts the controls keep
    their height on a 640px-tall screen and are still reachable by scrolling.
-16. **The island was too small.** Base geometry up about 16% (idle 112×32 → 130×38, now playing
+26. **The island was too small.** Base geometry up about 16% (idle 112×32 → 130×38, now playing
    276×112 → 318×128), type up a notch, controls up from 38 to 42dp, and the width/height sliders now
    reach 60–125% and 70–150% so you can go bigger still.
-17. **The preview used to vanish when you switched the overlay on**, leaving you tuning something you
+27. **The preview used to vanish when you switched the overlay on**, leaving you tuning something you
    could not see. It stays now, and the floating window detaches itself while the app is in front —
    detached rather than hidden, because a hidden overlay window still swallows touches.
-18. **The overlay could be stranded mid-morph** when frames were throttled, and it would then report a
+28. **The overlay could be stranded mid-morph** when frames were throttled, and it would then report a
    stale size to the native window, clipping the island. It has the same 1.5s settle watchdog the app
    has had since 1.0.0.
-19. **The wallpaper clock could sit under a tall island.** It is now measured against the space it
+29. **The wallpaper clock could sit under a tall island.** It is now measured against the space it
    actually has, so it shrinks instead of sliding under the island.
 
 ### 1.1.0 — going system-wide
 
-20. The island is a real overlay window now, not a page inside the app. The window is sized to exactly
+30. The island is a real overlay window now, not a page inside the app. The window is sized to exactly
    the island's current box and grown *before* each morph, so nothing is ever clipped mid-animation
    and the overlay never swallows touches it does not need.
-21. The overlay island had no `box-sizing: border-box`, so its 1px border made it render 2px wider than
+31. The overlay island had no `box-sizing: border-box`, so its 1px border made it render 2px wider than
    the size it reported to the native window — which then clipped the border. Caught by the geometry
    assertions, fixed at the source.
-22. The switch used to mean "is the preview drawn". It now means "is the island running over other
+32. The switch used to mean "is the preview drawn". It now means "is the island running over other
    apps", and it is the single source of truth: the label, the accessibility state, the preview, the
    service and `localStorage` are all driven from one function instead of five places drifting apart.
-23. Permission was assumed rather than checked. Toggling without it silently did nothing; now it opens
+33. Permission was assumed rather than checked. Toggling without it silently did nothing; now it opens
    the right settings screen, stays off, and explains why.
-24. The service could be left running with the switch showing "Off" after a reboot or a low-memory
+34. The service could be left running with the switch showing "Off" after a reboot or a low-memory
    kill. The app re-syncs on resume and restarts the service if the switch is on.
 
 ### 1.0.0 — the original seventeen
 
 **Things that visibly broke**
 
-25. The activity chips declared `font: 500 14px inherit` — not a legal shorthand, so the entire
+35. The activity chips declared `font: 500 14px inherit` — not a legal shorthand, so the entire
    declaration was thrown away and every chip rendered at the browser default 13.3px/400 instead of
    14px/500. Replaced with explicit `font-family`/`font-size`/`font-weight`.
-26. Tapping the island after closing a live call reopened an *incoming call* rather than the call you
+36. Tapping the island after closing a live call reopened an *incoming call* rather than the call you
    were on: the "remember last state" line mapped `ongoing` to `incoming`. It now stores the real
    previous state.
-27. Switching away from **Call someone** within 3.6 seconds could still drop you into a live call. The
+37. Switching away from **Call someone** within 3.6 seconds could still drop you into a live call. The
    auto-promote `setTimeout` shared a variable with the call-duration `setInterval` and was cancelled
    with `clearInterval`, which is not a reliable way to cancel a timeout. Every timer now has its own
    handle plus a state guard.
-28. Two quick state changes could leave the island **empty and invisible**: `clearTimeout` cancelled the
+38. Two quick state changes could leave the island **empty and invisible**: `clearTimeout` cancelled the
    pending "fade the contents back in", stranding the `.out` class. Swaps are token-guarded now and the
    visible state is always restored.
-29. Turning the island off mid-call left the duration interval and the promote timer running forever,
+39. Turning the island off mid-call left the duration interval and the promote timer running forever,
     and left `pointer-events` / `aria-hidden` out of sync with the switch.
-30. Play/pause wrote to `content.firstChild` and next/previous searched the island for the first `.t1` —
+40. Play/pause wrote to `content.firstChild` and next/previous searched the island for the first `.t1` —
     both silently target the wrong node after a re-render. Every lookup is scoped to the current view.
-31. The huge wallpaper clock used to bleed through the island text. The clock is now centred in the
+41. The huge wallpaper clock used to bleed through the island text. The clock is now centred in the
     space *below* the island, and the default island opacity went from 44% to 75%.
-32. White text on the light-blue "active" chip was about 2.2:1 contrast — barely readable. It is dark
+42. White text on the light-blue "active" chip was about 2.2:1 contrast — barely readable. It is dark
     ink on the accent now, around 7:1.
 
 **Things that broke under the hood**
 
-33. The corner-radius target could exceed half the height; the render loop clamped it silently, so the
+43. The corner-radius target could exceed half the height; the render loop clamped it silently, so the
     morph snapped at the very end. The target is clamped before it reaches the spring.
-34. All motion was driven by `requestAnimationFrame` alone. In a backgrounded tab that pauses, leaving
+44. All motion was driven by `requestAnimationFrame` alone. In a backgrounded tab that pauses, leaving
     the island stranded mid-morph and the contents never faded in. Contents now fade on a timer, and a
     1.5 s watchdog snaps any spring that has not finished.
-35. The clock and date were hardcoded strings ("9:41", "Friday, October 30"). They are live now.
-36. `prefers-reduced-motion` only stopped the wallpaper orbs; the waveform, equaliser and pulse ring
+45. The clock and date were hardcoded strings ("9:41", "Friday, October 30"). They are live now.
+46. `prefers-reduced-motion` only stopped the wallpaper orbs; the waveform, equaliser and pulse ring
     kept animating. All of it stops now.
-37. Settings reset on every reload — they persist in `localStorage` now.
-38. The accordion measured `offsetHeight` on every frame and animated `height` in pixels, which broke
+47. Settings reset on every reload — they persist in `localStorage` now.
+48. The accordion measured `offsetHeight` on every frame and animated `height` in pixels, which broke
     after a rotation or a font-size change. It is a pure-CSS `max-height` transition now.
-39. The island carried `role="button"` while containing real buttons — nested interactive elements,
+49. The island carried `role="button"` while containing real buttons — nested interactive elements,
     which screen readers announce badly. The container is a `role="group"`; the controls keep their own
     roles, labels and `aria-pressed` state, and state changes are announced in a live region.
-40. No `theme-color`, no safe-area handling for the notch or the gesture bar, no `touch-action`, so taps
+50. No `theme-color`, no safe-area handling for the notch or the gesture bar, no `touch-action`, so taps
     were delayed ~300 ms on some devices.
 
 ## Build the APK yourself
@@ -232,7 +257,7 @@ the build to a few seconds and the repo to a few hundred KB.
 # needs JDK 17+ and Android SDK build-tools 34 + platform android-34
 export ANDROID_HOME="$HOME/Android/Sdk"
 ./app/build.sh
-# -> app/dist/DynamicIsland-1.6.0.apk
+# -> app/dist/DynamicIsland-1.7.0.apk
 ```
 
 `build.sh` copies `app/index.html` and `app/overlay.html` into the Android assets folder itself, so the

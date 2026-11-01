@@ -27,7 +27,7 @@ body{
 }
 
 /* ---------- stage: the "phone" ---------- */
-.stage{position:relative;flex:1;min-height:0;overflow:hidden;
+.stage{position:relative;flex:1;min-height:0;overflow:hidden;overflow:clip;
   background:
     radial-gradient(70% 45% at 18% 12%,#ff7ab8 0,transparent 62%),
     radial-gradient(62% 46% at 86% 26%,#5b8cff 0,transparent 64%),
@@ -306,8 +306,8 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
 
   /* ============ springs ============ */
   function Spring(v){ this.x=v; this.v=0; this.t=v; }
-  Spring.prototype.step = function(dt,k,z){
-    var c = 2*z*Math.sqrt(k), n = 4, h = dt/n;
+  Spring.prototype.step = function(dt,k,c){
+    var n = 4, h = dt/n;
     for(var i=0;i<n;i++){
       var a = -k*(this.x-this.t) - c*this.v;
       this.v += a*h; this.x += this.v*h;
@@ -317,32 +317,46 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   var spW = new Spring(BASE.idle.w), spH = new Spring(BASE.idle.h),
       spR = new Spring(16),            spS = new Spring(1);
 
-  function zeta(){ return clamp(.95 - .80*S.bounce, .12, 1.02); }
+  /* damping only changes when the bounce slider moves, so it is computed once
+     per change instead of once per spring per frame */
+  var DAMP = { w:0, h:0, r:0, s:0 };
+  function recomputeDamping(){
+    var z = clamp(.95 - .80*S.bounce, .12, 1.02);
+    DAMP.w = 2*z*Math.sqrt(175);
+    DAMP.h = 2*z*Math.sqrt(235);
+    DAMP.r = 2*z*Math.sqrt(175);
+    DAMP.s = 2*clamp(z+.1,.2,1)*Math.sqrt(210);
+  }
 
   var raf = null, lastT = 0;
+  var shown = { w:'', h:'', r:'', t:'', o:'' };
   function paint(){
     var vw = window.innerWidth || 360;
     var w = clamp(spW.x, 20, vw - 16);
     var h = clamp(spH.x, 14, Math.max(140, vw));
     var r = clamp(spR.x, 6, h/2);
-    island.style.width  = w.toFixed(2)+'px';
-    island.style.height = h.toFixed(2)+'px';
-    island.style.borderRadius = r.toFixed(2)+'px';
     var sc = clamp(spS.x, 0, 1.2);
-    island.style.transform = 'translateX(-50%) scale('+sc.toFixed(3)+')';
-    island.style.opacity = clamp(sc*1.5, 0, 1).toFixed(3);
+    var sw = w.toFixed(2)+'px', sh = h.toFixed(2)+'px', sr = r.toFixed(2)+'px';
+    var st = 'translateX(-50%) scale('+sc.toFixed(3)+')';
+    var so = clamp(sc*1.5, 0, 1).toFixed(3);
+    if(sw !== shown.w){ island.style.width = sw; shown.w = sw; }
+    if(sh !== shown.h){ island.style.height = sh; shown.h = sh; }
+    if(sr !== shown.r){ island.style.borderRadius = sr; shown.r = sr; }
+    if(st !== shown.t){ island.style.transform = st; shown.t = st; }
+    if(so !== shown.o){ island.style.opacity = so; shown.o = so; }
   }
   function frame(now){
     raf = null;
     var dt = lastT ? Math.min(.032, (now-lastT)/1000) : .016;
     lastT = now;
-    var z = zeta(), moving = false;
-    if(spW.step(dt, 175, z)) moving = true;
-    if(spH.step(dt, 235, z)) moving = true;
-    if(spR.step(dt, 175, z)) moving = true;
-    if(spS.step(dt, 210, clamp(z+.1,.2,1))) moving = true;
+    var moving = false;
+    if(spW.step(dt, 175, DAMP.w)) moving = true;
+    if(spH.step(dt, 235, DAMP.h)) moving = true;
+    if(spR.step(dt, 175, DAMP.r)) moving = true;
+    if(spS.step(dt, 210, DAMP.s)) moving = true;
     paint();
-    if(moving) raf = requestAnimationFrame(frame); else lastT = 0;
+    if(moving) raf = requestAnimationFrame(frame);
+    else { lastT = 0; applyPos(); }
   }
   function kick(){
     if(raf === null){ lastT = 0; raf = requestAnimationFrame(frame); }
@@ -354,7 +368,7 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
     spW.x = spW.t; spH.x = spH.t; spR.x = spR.t; spS.x = spS.t;
     spW.v = spH.v = spR.v = spS.v = 0;
     if(raf !== null){ cancelAnimationFrame(raf); raf = null; }
-    lastT = 0; paint();
+    lastT = 0; paint(); applyPos();
   }
   function armSettle(){
     if(settleT) clearTimeout(settleT);
@@ -362,6 +376,8 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   }
   /* where the island sits inside the stage: the same percentages drive the
      floating window, so what you set here is what you get out there */
+  var lastOffX = null, lastOffY = null;
+  function invalidateStage(){}
   function applyPos(){
     var st = stage.getBoundingClientRect();
     var w = Math.min(spW.t, st.width);
@@ -370,6 +386,8 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
     var availY = Math.max(0, st.height - h);
     var offX = (S.px/100)*availX - availX/2;
     var offY = (S.py/100)*availY;
+    if(offX === lastOffX && offY === lastOffY) return;
+    lastOffX = offX; lastOffY = offY;
     island.style.setProperty('--ioff-x', offX.toFixed(1)+'px');
     island.style.setProperty('--ioff-y', offY.toFixed(1)+'px');
   }
@@ -674,14 +692,23 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   /* sliders */
   function bind(id, apply, fmt){
     var el = document.getElementById(id), out = el.parentNode.querySelector('output');
-    function go(){
+    var queued = false, lastV = null;
+    function flush(){
+      queued = false;
       var v = +el.value;
+      if(v === lastV) return;
+      lastV = v;
       apply(v);
       out.textContent = fmt ? fmt(v) : v+'%';
     }
+    function go(){
+      if(queued) return;
+      queued = true;
+      requestAnimationFrame(flush);
+    }
     el.addEventListener('input', go);
     el.addEventListener('change', function(){ save(); pushConfig(); haptic('light'); });
-    return { el: el, go: go };
+    return { el: el, go: function(){ flush(); } };
   }
   var sliders = {};
   sliders.sw = bind('sw', function(v){ S.wm = v/100; applyTargets(false); });
@@ -689,7 +716,7 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   sliders.sr = bind('sr', function(v){ S.rm = v/100; applyTargets(false); });
   sliders.sa = bind('sa', function(v){ S.alpha = (1-v/100)*0.95 + 0.04; island.style.setProperty('--a', S.alpha.toFixed(3)); });
   sliders.sb = bind('sb', function(v){ S.blur = v; island.style.setProperty('--b', v+'px'); }, function(v){ return v+'px'; });
-  sliders.sk = bind('sk', function(v){ S.bounce = v/100; spW.v += 25; kick(); });
+  sliders.sk = bind('sk', function(v){ S.bounce = v/100; recomputeDamping(); spW.v += 25; kick(); });
   sliders.sx = bind('sx', function(v){ S.px = v; applyPos(); pushPosition(); });
   sliders.sy = bind('sy', function(v){ S.py = v; applyPos(); pushPosition(); });
 
@@ -730,18 +757,27 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
     sheetOpen = open;
     sheet.classList.toggle('collapsed', !open);
     grab.setAttribute('aria-expanded', open ? 'true' : 'false');
+    invalidateStage();
+    setTimeout(function(){ invalidateStage(); applyPos(); }, 500);
   }
   grab.addEventListener('click', function(){ setSheet(!sheetOpen); haptic('light'); });
 
   /* ============ clock, date, battery ============ */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
+  var elClock = $('#clock'), elDate = $('#date'), lastTime = '', lastDate = '';
   function tickClock(){
     var d = new Date();
     var hh = d.getHours(), mm = pad(d.getMinutes());
     var h12 = hh % 12; if(h12 === 0) h12 = 12;
     var t = h12 + ':' + mm;
-    $('#clock').textContent = t;
-    $('#date').textContent = d.toLocaleDateString(undefined, { weekday:'long', month:'long', day:'numeric' });
+    if(t !== lastTime){ elClock.textContent = t; lastTime = t; }
+    var ds = d.toLocaleDateString(undefined, { weekday:'long', month:'long', day:'numeric' });
+    if(ds !== lastDate){ elDate.textContent = ds; lastDate = ds; }
+  }
+  /* wake exactly on the second instead of every drifting 1000ms tick */
+  function scheduleClock(){
+    var delay = 1000 - (Date.now() % 1000) + 10;
+    setTimeout(function(){ tickClock(); scheduleClock(); }, delay);
   }
   function tickBattery(){
     var pct = null;
@@ -790,11 +826,14 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   pushPosition();
   pushLock();
   syncLockUI();
+  recomputeDamping();
   tickClock(); tickBattery();
-  setInterval(tickClock, 1000);
+  scheduleClock();
   setInterval(tickBattery, 30000);
-  window.addEventListener('resize', function(){ applyTargets(false); });
-  window.addEventListener('orientationchange', function(){ setTimeout(function(){ applyTargets(false); }, 120); });
+  window.addEventListener('resize', function(){ invalidateStage(); applyTargets(false); });
+  window.addEventListener('orientationchange', function(){
+    setTimeout(function(){ invalidateStage(); applyTargets(false); }, 120);
+  });
   setTimeout(function(){ spW.v += 200; spH.v += 80; kick(); }, 320);
 })();
 </script>

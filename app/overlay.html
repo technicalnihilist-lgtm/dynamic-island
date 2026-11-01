@@ -85,28 +85,36 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
 
   /* ---- springs ---- */
   function Spring(v){ this.x=v; this.v=0; this.t=v; }
-  Spring.prototype.step=function(dt,k,z){
-    var c=2*z*Math.sqrt(k), n=4, h=dt/n;
+  Spring.prototype.step=function(dt,k,c){
+    var n=4, h=dt/n;
     for(var i=0;i<n;i++){ var a=-k*(this.x-this.t)-c*this.v; this.v+=a*h; this.x+=this.v*h; }
     return Math.abs(this.x-this.t)>.05||Math.abs(this.v)>.05;
   };
   var spW=new Spring(130), spH=new Spring(38), spR=new Spring(19);
-  function zeta(){ return clamp(.95-.80*S.bounce,.12,1.02); }
+  var DAMP={w:0,h:0,r:0};
+  function recomputeDamping(){
+    var z=clamp(.95-.80*S.bounce,.12,1.02);
+    DAMP.w=2*z*Math.sqrt(175);
+    DAMP.h=2*z*Math.sqrt(235);
+    DAMP.r=2*z*Math.sqrt(175);
+  }
 
   var raf=null, lastT=0, settleT=null, settledW=130, settledH=38;
+  var shown={w:'',h:'',r:''};
   function paint(){
     var w=clamp(spW.x,20,maxW), h=clamp(spH.x,14,240), r=clamp(spR.x,6,h/2);
-    island.style.width=w.toFixed(2)+'px';
-    island.style.height=h.toFixed(2)+'px';
-    island.style.borderRadius=r.toFixed(2)+'px';
+    var sw=w.toFixed(2)+'px', sh=h.toFixed(2)+'px', sr=r.toFixed(2)+'px';
+    if(sw!==shown.w){ island.style.width=sw; shown.w=sw; }
+    if(sh!==shown.h){ island.style.height=sh; shown.h=sh; }
+    if(sr!==shown.r){ island.style.borderRadius=sr; shown.r=sr; }
   }
   function frame(now){
     raf=null;
     var dt=lastT?Math.min(.032,(now-lastT)/1000):.016; lastT=now;
-    var z=zeta(), moving=false;
-    if(spW.step(dt,175,z)) moving=true;
-    if(spH.step(dt,235,z)) moving=true;
-    if(spR.step(dt,175,z)) moving=true;
+    var moving=false;
+    if(spW.step(dt,175,DAMP.w)) moving=true;
+    if(spH.step(dt,235,DAMP.h)) moving=true;
+    if(spR.step(dt,175,DAMP.r)) moving=true;
     paint();
     if(moving){ raf=requestAnimationFrame(frame); }
     else {
@@ -287,7 +295,7 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     if(typeof wm==='number') S.wm=wm;
     if(typeof hm==='number') S.hm=hm;
     if(typeof rm==='number') S.rm=rm;
-    if(typeof b==='number') S.bounce=b;
+    if(typeof b==='number'){ S.bounce=b; recomputeDamping(); }
     targets(); kick(); armSettle();
   };
   window.__setMax=function(px){
@@ -332,6 +340,7 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     setState('notif');
   };
 
+  recomputeDamping();
   targets();
   paint();
   resize(Math.round(spW.t),Math.round(spH.t));
