@@ -53,7 +53,7 @@ from the sheet at the bottom — which drives the floating island too when it is
 - Controls that stay out of the way — the sheet collapses to a grabber for a full-screen island
 - Opacity, blur, corner, width, height and bounce are adjustable and remembered between launches
 - Haptics on every state change, a working hardware back button, edge-to-edge layout with the real
-  status-bar inset, and the real battery level in the status line
+  status-bar inset
 - Dark and light themes, and full `prefers-reduced-motion` support
 
 ## Install
@@ -74,7 +74,18 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (93 checks, all passing).
+reproduced, fixed and covered by `tools/test_app.py` (96 checks, all passing).
+
+### 1.7.4 — optimisation slot 7
+
+1. **The app stopped waking every 30 seconds to draw a battery level it no longer has.** When the fake
+   status bar was removed in 1.3.0 its battery readout went with it, but the timer that fed it stayed:
+   every 30 s, for ever, the page crossed into Java (`Native.battery()`, which registers a sticky
+   broadcast receiver to read the level), then wrote that number into `#batFill` — a node that has not
+   existed since the fake bar was deleted, so every one of those wakeups was guaranteed to change
+   nothing on screen. The dead poll, and the bridge method behind it, are gone. The suite asserts that a
+   fresh page never calls `Native.battery` and never schedules a repeating timer of five seconds or more;
+   the clock's once-a-minute timer is unaffected.
 
 ### 1.7.3 — optimisation slot 6
 
@@ -309,7 +320,7 @@ pip install playwright && playwright install chromium
 python tools/test_app.py
 ```
 
-93 checks against a real browser: geometry per state, the island at the absolute top, the position
+96 checks against a real browser: geometry per state, the island at the absolute top, the position
 sliders moving it to every edge, the lock-screen switch, content visibility, timer ticking,
 mute/pause/next, the system-wide switch (permission handling, service start/stop, the preview staying
 put, chips and sliders reaching the overlay, state mirroring in both directions), accordion, sheet,

@@ -52,6 +52,23 @@ CLOCK_FAKE = """
 })();
 """
 
+WAKE_FAKE = """
+(function(){
+  var si = window.setInterval;
+  window.__intervals = [];      /* every repeating timer the page schedules */
+  window.__batteryCalls = 0;
+  window.setInterval = function(fn, d){
+    window.__intervals.push(d);
+    return si.apply(window, arguments);
+  };
+  var N = window.Native;
+  if (N && N.battery){
+    var b0 = N.battery;
+    N.battery = function(){ window.__batteryCalls++; return b0.apply(N, arguments); };
+  }
+})();
+"""
+
 fails = []
 checks = [0]
 def chk(name, cond, extra=""):
@@ -253,6 +270,26 @@ with sync_playwright() as p:
         (before, clock_text(), cp.evaluate(hhmm)))
     chk("the clock page has no errors", len(cerrs) == 0, cerrs[:3])
     clk.close()
+
+    # ---- needless wakeups ------------------------------------------------
+    # the fake status bar that owned #batFill went away in 1.3.0, but the app
+    # kept waking every 30 s to ask the native shell for a battery level and
+    # write it into a node that no longer exists - a timer that could never
+    # change a pixel, plus a crossing into Java for it
+    wake = b.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=3, color_scheme="dark")
+    wake.add_init_script(MOCK)
+    wake.add_init_script(WAKE_FAKE)
+    wp = wake.new_page()
+    werrs = []
+    wp.on("pageerror", lambda e: werrs.append(str(e)))
+    wp.goto(URL); wp.wait_for_timeout(2600)
+    chk("nothing asks the native shell for a battery level it does not show",
+        wp.evaluate("window.__batteryCalls") == 0, wp.evaluate("window.__batteryCalls"))
+    chk("no half-minute wakeup is scheduled",
+        wp.evaluate("window.__intervals.filter(function(d){return d>=5000})") == [],
+        wp.evaluate("window.__intervals"))
+    chk("the wakeup page has no errors", len(werrs) == 0, werrs[:3])
+    wake.close()
 
     # ---- the overlay page itself -----------------------------------------
     ov = b.new_context(viewport={"width": 390, "height": 200}, device_scale_factor=3, color_scheme="dark")

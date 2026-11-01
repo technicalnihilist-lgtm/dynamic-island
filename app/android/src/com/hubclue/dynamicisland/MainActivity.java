@@ -4,12 +4,10 @@ import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Insets;
 import android.net.Uri;
-import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.VibrationEffect;
@@ -204,20 +202,6 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public String insets() {
             return insetTop + "," + insetBottom;
-        }
-
-        @JavascriptInterface
-        public int battery() {
-            try {
-                Intent i = registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
-                if (i == null) return -1;
-                int level = i.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
-                int scale = i.getIntExtra(BatteryManager.EXTRA_SCALE, 100);
-                if (level < 0 || scale <= 0) return -1;
-                return Math.round(level * 100f / scale);
-            } catch (Exception e) {
-                return -1;
-            }
         }
 
         @JavascriptInterface
