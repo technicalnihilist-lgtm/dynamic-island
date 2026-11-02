@@ -74,7 +74,22 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (107 checks, all passing).
+reproduced, fixed and covered by `tools/test_app.py` (113 checks, all passing).
+
+### 1.7.7 — optimisation slot 9
+
+1. **The render loop no longer forces a layout on every frame.** `paint()` runs on every frame of every
+   morph, and it read `window.innerWidth` to clamp the island to the screen. Reading the viewport after
+   writing `width` and `height` makes the browser flush the style and layout those writes had just
+   dirtied — so the frame went write, forced layout, write, forced layout, sixty times a second, in a
+   WebView, during every tap, every state change, every notification and every slider drag, to fetch a
+   number that only changes when the window does. The width is kept in a variable now, refreshed on
+   `resize`, on rotation, and on coming back to a page that may have been resized while it was away;
+   `applyTargets` uses the same value, so the target and the clamp can never disagree. Measured on the
+   morph alone: eight viewport reads in half a second before, none after, with the island landing on
+   exactly the same box. The suite counts the reads through a `window.innerWidth` getter and asserts the
+   loop makes none while morphing, that the morph still lands on 318×128, and that a window narrowed to
+   300 px still clamps the island to 276 — that last one is what proves the cached width is not stale.
 
 ### 1.7.6 — optimisation slot 3
 

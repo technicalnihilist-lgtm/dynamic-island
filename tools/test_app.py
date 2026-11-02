@@ -69,6 +69,17 @@ WAKE_FAKE = """
 })();
 """
 
+VIEWPORT_FAKE = """
+(function(){
+  /* counts every read of window.innerWidth, the way a forced layout is asked for */
+  window.__vwReads = 0;
+  Object.defineProperty(window, 'innerWidth', {
+    configurable: true,
+    get: function(){ window.__vwReads++; return document.documentElement.clientWidth; }
+  });
+})();
+"""
+
 fails = []
 checks = [0]
 def chk(name, cond, extra=""):
@@ -86,7 +97,8 @@ with sync_playwright() as p:
     pg.on("console", lambda m: errs.append(m.text) if m.type == "error" else None)
     pg.goto(URL); pg.wait_for_timeout(900)
 
-    box = lambda: pg.eval_on_selector("#island", "e=>{const r=e.getBoundingClientRect();return {w:Math.round(r.width),h:Math.round(r.height),y:Math.round(r.top)}}")
+    box_of = lambda page: page.eval_on_selector("#island", "e=>{const r=e.getBoundingClientRect();return {w:Math.round(r.width),h:Math.round(r.height),y:Math.round(r.top)}}")
+    box = lambda: box_of(pg)
     near = lambda g, w, h: abs(g["w"] - w) <= 1 and abs(g["h"] - h) <= 1
     calls = lambda: pg.evaluate("window.__calls.map(c=>c[0])")
     last = lambda n: pg.evaluate("(function(){var c=window.__calls.filter(x=>x[0]==='%s');return c.length?c[c.length-1]:null})()" % n)
@@ -451,6 +463,36 @@ with sync_playwright() as p:
     op.evaluate("window.__setMax(240)"); op.evaluate("window.__setState('music')"); op.wait_for_timeout(1500)
     chk("overlay honours the max width it is given", obox()["w"] <= 240, obox())
     chk("overlay has no errors", len(oerrs) == 0, oerrs[:3])
+
+    # ---- the render loop must not force a layout every frame --------------
+    # paint() runs on every frame of every morph and read window.innerWidth
+    # there, which makes the browser flush the style and layout the previous
+    # frame had just dirtied by writing width and height: a synchronous layout
+    # sixty times a second, for a number that only changes when the window does
+    lay = b.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=3, color_scheme="dark")
+    lay.add_init_script(MOCK)
+    lay.add_init_script(VIEWPORT_FAKE)
+    lp = lay.new_page()
+    lerrs = []
+    lp.on("pageerror", lambda e: lerrs.append(str(e)))
+    lp.goto(URL); lp.wait_for_timeout(900)
+    chk("the viewport read counter is wired up",
+        lp.evaluate("(function(){window.__vwReads=0; void window.innerWidth; return window.__vwReads})()") == 1)
+    lp.evaluate("window.__vwReads = 0")
+    lp.evaluate("window.__di.setState('music')")
+    lp.wait_for_timeout(500)                       # mid-morph, the loop is running
+    reads = lp.evaluate("window.__vwReads")
+    chk("the render loop does not ask for the viewport on every frame", reads <= 1, reads)
+    lp.wait_for_timeout(1700)
+    chk("the morph still lands on the right size", near(box_of(lp), 318, 128), box_of(lp))
+    # the cached width has to follow a real resize, or the island overflows it
+    lp.set_viewport_size({"width": 300, "height": 700})
+    lp.wait_for_timeout(1800)
+    w = lp.eval_on_selector("#island", "e=>Math.round(e.getBoundingClientRect().width)")
+    chk("a narrower window still clamps the island", w <= 284, w)
+    chk("and does not squash it any further than the clamp", w >= 260, w)
+    chk("the render page has no errors", len(lerrs) == 0, lerrs[:3])
+    lay.close()
 
     b.close()
 

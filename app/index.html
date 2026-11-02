@@ -295,6 +295,17 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   var live    = $('#live');
 
   /* ============ geometry ============ */
+  /* The island is clamped to the viewport, and paint() runs on every frame of
+     every morph. Reading window.innerWidth there made the browser flush the
+     style and layout the previous frame had just invalidated by writing width
+     and height - a synchronous layout, sixty times a second, to fetch a number
+     that only changes when the window does. It is held in a variable now and
+     refreshed where the window really changes: a resize, a rotation, and a
+     return to a page that may have been resized while it was away. */
+  var vwCache = 0;
+  function readViewport(){ vwCache = window.innerWidth || 360; return vwCache; }
+  function viewportW(){ return vwCache || readViewport(); }
+
   var BASE = {
     idle:     { w:130, h:38  },
     incoming: { w:312, h:88  },
@@ -331,7 +342,7 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   var raf = null, lastT = 0;
   var shown = { w:'', h:'', r:'', t:'', o:'' };
   function paint(){
-    var vw = window.innerWidth || 360;
+    var vw = viewportW();
     var w = clamp(spW.x, 20, vw - 16);
     var h = clamp(spH.x, 14, Math.max(140, vw));
     var r = clamp(spR.x, 6, h/2);
@@ -394,7 +405,7 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
 
   function applyTargets(snap){
     var b = BASE[state] || BASE.idle;
-    var vw = window.innerWidth || 360;
+    var vw = viewportW();
     spW.t = Math.min(b.w*S.wm, vw-24);
     spH.t = b.h*S.hm;
     spR.t = Math.min(spH.t/2, 38)*S.rm;
@@ -796,7 +807,9 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
     tickClock();
     scheduleClock();
   }
-  document.addEventListener('visibilitychange', function(){ if(!document.hidden) refreshClock(); });
+  document.addEventListener('visibilitychange', function(){
+    if(!document.hidden){ readViewport(); refreshClock(); }
+  });
   window.addEventListener('focus', refreshClock);
 
   /* ============ insets from the native shell ============ */
@@ -832,6 +845,7 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   };
 
   /* ============ boot ============ */
+  readViewport();
   applyInsets();
   loadSettingsIntoUI();
   setPower(!!S.on, true);
@@ -842,9 +856,9 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   recomputeDamping();
   tickClock();
   scheduleClock();
-  window.addEventListener('resize', function(){ invalidateStage(); applyTargets(false); });
+  window.addEventListener('resize', function(){ readViewport(); invalidateStage(); applyTargets(false); });
   window.addEventListener('orientationchange', function(){
-    setTimeout(function(){ invalidateStage(); applyTargets(false); }, 120);
+    setTimeout(function(){ readViewport(); invalidateStage(); applyTargets(false); }, 120);
   });
   setTimeout(function(){ spW.v += 200; spH.v += 80; kick(); }, 320);
 })();
