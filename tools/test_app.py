@@ -223,6 +223,48 @@ with sync_playwright() as p:
         pg.eval_on_selector("#island", "e=>e.getBoundingClientRect().bottom") > st["bottom"] - 14)
     chk("position reaches the floating window", "setOverlayPosition" in calls())
 
+    # ---- a drag must not cross into Java on every frame -------------------
+    # the position sliders fire once per animation frame, and every one of those
+    # used to cross the bridge into Java, where the service rewrote its prefs and
+    # re-laid-out the system overlay window: ~60 binder calls, ~60 disk writes
+    # and ~60 window relayouts a second, for a value that only has to be right
+    # when the finger stops
+    pos = b.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=3, color_scheme="dark")
+    pos.add_init_script(MOCK)
+    pp = pos.new_page()
+    perrs = []
+    pp.on("pageerror", lambda e: perrs.append(str(e)))
+    pp.goto(URL); pp.wait_for_timeout(900)
+    pp.evaluate("window.__calls.length = 0")
+    drag_ms = pp.evaluate("""new Promise(function(res){
+        var el = document.getElementById('sx'), n = 0, t0 = performance.now();
+        window.__steps = 0;
+        function step(){
+          el.value = String(n % 2 ? 8 : 92);          /* keeps changing, like a drag */
+          el.dispatchEvent(new Event('input', {bubbles:true}));
+          window.__steps++;
+          if(++n < 80) requestAnimationFrame(step); else res(performance.now() - t0);
+        }
+        requestAnimationFrame(step);
+      })""")
+    pp.wait_for_timeout(400)
+    steps = pp.evaluate("window.__steps")
+    pushes = pp.evaluate("window.__calls.filter(function(c){return c[0]==='setOverlayPosition'}).length")
+    # one push per animation frame before, at most one per 80 ms now - checked
+    # against the real elapsed time so the bound does not depend on frame rate
+    chk("dragging a position slider does not cross into Java on every frame",
+        pushes < steps and pushes <= drag_ms / 80.0 + 2, (pushes, steps, round(drag_ms)))
+    chk("a drag still moves the floating island while it runs", pushes >= 1, pushes)
+    pp.evaluate("window.__calls.length = 0")
+    pp.eval_on_selector("#sy", "e=>{e.value=70;e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}))}")
+    pp.wait_for_timeout(400)
+    lastpos = pp.evaluate("(function(){var c=window.__calls.filter(function(x){return x[0]==='setOverlayPosition'});return c.length?c[c.length-1]:null})()")
+    sxNow = int(pp.eval_on_selector("#sx", "e=>e.value"))
+    chk("the last value of a drag reaches the floating window at once",
+        lastpos is not None and lastpos[1] == sxNow and lastpos[2] == 70, (lastpos, sxNow))
+    chk("the position page has no errors", len(perrs) == 0, perrs[:3])
+    pos.close()
+
     # ---- lock screen toggle ---------------------------------------------
     chk("lock screen is on by default", "Show on lock screen" in pg.eval_on_selector("#lkLabel", "e=>e.textContent"))
     pg.eval_on_selector("#lk", "e=>e.click()"); pg.wait_for_timeout(200)

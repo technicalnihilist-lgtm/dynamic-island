@@ -74,7 +74,23 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (113 checks, all passing).
+reproduced, fixed and covered by `tools/test_app.py` (117 checks, all passing).
+
+### 1.7.8 — optimisation slot 10
+
+1. **Dragging a position slider no longer crosses into Java on every frame.** The horizontal and
+   vertical sliders fire once per animation frame, and every one of those went straight over the
+   bridge into the service, which rewrote its saved position to `SharedPreferences` and called
+   `updateViewLayout` on the system overlay window — sixty-odd binder calls, sixty-odd disk writes and
+   sixty-odd window relayouts a second, for a value that only has to be right when the finger stops.
+   The newest value is kept now and sent at most once every 80 ms, with a trailing send, so a drag
+   still tracks the floating island closely and the last frame of it is never lost; releasing the
+   slider flushes the pending value at once. The preview's own position still moves on the same frame
+   it always did — only the crossings into Java are coalesced, so nothing about the layout, the
+   numbers or the feel of the drag changes. The suite drives eighty frames of real `input` events
+   through the slider and counts the bridge calls: eighty before, thirty-seven after, checked against
+   an elapsed-time bound that does not depend on the frame rate, plus a check that the value the
+   finger stopped on still reaches the window immediately.
 
 ### 1.7.7 — optimisation slot 9
 

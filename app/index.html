@@ -557,10 +557,27 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
       try{ N.setOverlayConfig(S.wm, S.hm, S.rm, S.bounce); }catch(e){}
     }
   }
+  /* Dragging a position slider fires once per animation frame, and every one of
+     those used to cross the bridge into Java: the service rewrote its prefs and
+     re-laid-out a system overlay window each time - sixty binder calls, sixty
+     disk writes and sixty window relayouts a second, for a value that only has
+     to be right when the finger stops. The newest value is kept and sent at
+     most every 80 ms, with a trailing send, so a drag still tracks the floating
+     island closely and the last frame of it is never lost. */
+  var posPushT = null, posPushDirty = false;
   function pushPosition(){
+    posPushDirty = false;
+    if(posPushT){ clearTimeout(posPushT); posPushT = null; }
     if(N && N.setOverlayPosition){
       try{ N.setOverlayPosition(S.px, S.py); }catch(e){}
     }
+  }
+  function pushPositionSoon(){
+    posPushDirty = true;
+    if(posPushT === null) posPushT = setTimeout(function(){
+      posPushT = null;
+      if(posPushDirty) pushPosition();
+    }, 80);
   }
   function pushLock(){
     if(N && N.setOverlayLock){ try{ N.setOverlayLock(!!S.lock); }catch(e){} }
@@ -723,7 +740,9 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
       requestAnimationFrame(flush);
     }
     el.addEventListener('input', go);
-    el.addEventListener('change', function(){ save(); pushConfig(); haptic('light'); });
+    /* finger up: the throttled push is flushed at once, so the last value of a
+       drag is never left waiting on a timer */
+    el.addEventListener('change', function(){ save(); pushConfig(); if(posPushT !== null) pushPosition(); haptic('light'); });
     return { el: el, go: function(){ flush(); } };
   }
   var sliders = {};
@@ -733,8 +752,8 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   sliders.sa = bind('sa', function(v){ S.alpha = (1-v/100)*0.95 + 0.04; island.style.setProperty('--a', S.alpha.toFixed(3)); });
   sliders.sb = bind('sb', function(v){ S.blur = v; island.style.setProperty('--b', v+'px'); }, function(v){ return v+'px'; });
   sliders.sk = bind('sk', function(v){ S.bounce = v/100; recomputeDamping(); spW.v += 25; kick(); });
-  sliders.sx = bind('sx', function(v){ S.px = v; applyPos(); pushPosition(); });
-  sliders.sy = bind('sy', function(v){ S.py = v; applyPos(); pushPosition(); });
+  sliders.sx = bind('sx', function(v){ S.px = v; applyPos(); pushPositionSoon(); });
+  sliders.sy = bind('sy', function(v){ S.py = v; applyPos(); pushPositionSoon(); });
 
   function setSlider(id, val){
     var s = sliders[id]; if(!s) return;
