@@ -76,6 +76,21 @@ Any earlier version installs straight over the top — same signing key.
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
 reproduced, fixed and covered by `tools/test_app.py` (96 checks, all passing).
 
+### 1.7.5 — optimisation slot 1
+
+1. **The media poll backs off again once the player is gone.** The service reads the phone's media
+   sessions to show what is playing: every 1.5 s while something plays, every 6 s otherwise. Only the
+   happy path set that cadence, so when a player *closed* its session rather than pausing it — swiping
+   the music app out of recents, a video that finished — the loop returned early and left the delay at
+   the fast rate it had reached while the track was playing. From then on it woke every 1.5 s, for
+   ever, to ask `system_server` about a session that no longer existed: four times the binder traffic
+   for a screen that could not change. A read that *fails* had the same hole in the other direction, so
+   revoking notification access mid-song left it throwing every 1.5 s instead of dropping to the lazy
+   rate. Both exits now put the cadence back, and the two intervals are named constants instead of
+   magic numbers. Nothing on screen changed; this one lives entirely in `IslandService.java`, so it is
+   the first entry here that `tools/test_app.py` cannot reach — it is verified by the native build
+   compiling, and by reading the loop.
+
 ### 1.7.4 — optimisation slot 7
 
 1. **The app stopped waking every 30 seconds to draw a battery level it no longer has.** When the fake

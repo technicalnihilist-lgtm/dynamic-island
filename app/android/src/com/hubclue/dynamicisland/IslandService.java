@@ -54,6 +54,10 @@ public class IslandService extends Service {
     private static final int NOTIF_ID = 7;
     private static final String CHANNEL_ID = "island";
 
+    /** how often the player is read while something is playing, and otherwise */
+    private static final long FAST_POLL_MS = 1500;
+    private static final long LAZY_POLL_MS = 6000;
+
     public static volatile boolean RUNNING = false;
     /** last state the island was put in, so the app can mirror it on resume */
     public static volatile String currentState = "idle";
@@ -84,7 +88,7 @@ public class IslandService extends Service {
     private final int[] locTmp = new int[2];
     private float density = 2f;
     private boolean screenOn = true;
-    private long mediaPollDelay = 6000;
+    private long mediaPollDelay = LAZY_POLL_MS;
     private static boolean pendingLock = true;
     private static boolean hasPendingLock = false;
     private static IslandService sInstance;
@@ -250,6 +254,13 @@ public class IslandService extends Service {
             }
             MediaController target = playing != null ? playing : known;
             if (target == null) {
+                /* There is nothing left to read, so there is nothing to read
+                   quickly for. The cadence used to stay wherever it had got to
+                   while the track was playing, so the first time any player
+                   closed its session instead of pausing - a swipe out of recents,
+                   a video that finished - the service went on waking every 1.5 s
+                   for ever to ask system_server about a session that was gone. */
+                mediaPollDelay = LAZY_POLL_MS;
                 if (mediaPkg.length() > 0) {
                     mediaPkg = "";
                     media = null;
@@ -267,7 +278,7 @@ public class IslandService extends Service {
             PlaybackState ps = target.getPlaybackState();
             boolean isPlaying = ps != null && ps.getState() == PlaybackState.STATE_PLAYING;
             /* poll briskly while something is playing, lazily when idle */
-            mediaPollDelay = isPlaying ? 1500 : 6000;
+            mediaPollDelay = isPlaying ? FAST_POLL_MS : LAZY_POLL_MS;
             /* Reading the session is cheap; crossing into the WebView is not, and
                the island rebuilds part of its DOM for every push. So only speak
                when the track, the artist or the play state changed - or when the
@@ -281,6 +292,11 @@ public class IslandService extends Service {
                         + isPlaying + ")");
             }
         } catch (Throwable ignored) {
+            /* A read that failed says nothing about playback, so it is no reason
+               to stay at the playing cadence on the strength of an older, happy
+               read - notification access being revoked while music plays would
+               otherwise leave it throwing every 1.5 s for ever. */
+            mediaPollDelay = LAZY_POLL_MS;
         }
     }
 
