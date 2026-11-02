@@ -319,11 +319,23 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     callData.real=false;
     if(state==='incoming'||state==='ongoing') setState('idle');
   };
+  /* A call and a notification own the island until they finish. The player is
+     polled every 1.5 s, and every one of those polls used to hand the island
+     back to the music view: a notification that had seven seconds on screen
+     lived one and a half, and a ringing call lost its green and red buttons
+     while the phone was still ringing. The player keeps its data fresh and
+     waits for idle - the next poll brings it back the moment the call ends or
+     the notification dismisses. */
+  var OWNS_ISLAND = { incoming:1, ongoing:1, calling:1, notif:1 };
+
   window.__music=function(title,artist,isPlaying){
     var changed = (title!==musicData.title) || (artist!==musicData.artist);
     musicData={ title:(title||'Now playing'), artist:(artist||''), playing:!!isPlaying, real:true };
     playing = !!isPlaying;
-    if(state!=='music'){ setState('music'); }
+    if(state!=='music'){
+      if(OWNS_ISLAND[state]) return;
+      setState('music');
+    }
     else if(changed){
       var t1=content.querySelector('.col .t1'), t2=content.querySelector('.col .t2');
       if(t1) t1.textContent=musicData.title;

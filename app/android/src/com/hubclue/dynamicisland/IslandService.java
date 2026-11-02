@@ -282,9 +282,18 @@ public class IslandService extends Service {
             /* Reading the session is cheap; crossing into the WebView is not, and
                the island rebuilds part of its DOM for every push. So only speak
                when the track, the artist or the play state changed - or when the
-               island has moved on to something else and needs the player back. */
+               island has fallen back to idle and needs the player again. */
             String sig = title + '\0' + (artist == null ? "" : artist) + '\0' + isPlaying;
-            if (!sig.equals(lastMediaSig) || !"music".equals(currentState)) {
+            /* A call or a notification owns the island until it finishes, so the
+               player waits its turn. Re-asserting the track on the next tick
+               used to take the island back from them - a notification with
+               seven seconds on screen lived one and a half, and a ringing call
+               lost its green and red buttons while the phone was still
+               ringing - and it cost an eval into the WebView on every tick for
+               as long as they were up. Idle is the only state that needs the
+               player restored, so it is the only one that gets a push. */
+            boolean islandFree = "idle".equals(currentState) || "music".equals(currentState);
+            if (islandFree && (!sig.equals(lastMediaSig) || !"music".equals(currentState))) {
                 lastMediaSig = sig;
                 eval("window.__music&&window.__music("
                         + JSONObject.quote(title) + ","

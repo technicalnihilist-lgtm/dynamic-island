@@ -394,6 +394,60 @@ with sync_playwright() as p:
     op.evaluate("window.__musicEnd()")
     op.wait_for_timeout(1600)
     chk("stopping the music collapses the island", near(obox(), 130, 38), obox())
+
+    # ---- the player must not take the island from a call or a notification --
+    # the service polls the player every 1.5 s, and every one of those polls
+    # used to hand the island back to the music view: a notification with seven
+    # seconds on screen lived one and a half, and a ringing call lost its green
+    # and red buttons while the phone was still ringing
+    def settle_box(w=130, h=38):
+        prev = None
+        for _ in range(30):
+            g = obox()
+            if near(g, w, h) and g == prev:
+                return g
+            prev = g
+            op.wait_for_timeout(100)
+        return obox()
+
+    otext = lambda: op.eval_on_selector("#content", "e=>e.textContent")
+    op.evaluate("window.__music('Kesariya','Arijit Singh',true)")
+    op.wait_for_timeout(1500)
+    chk("the player opens the island from idle", near(obox(), 318, 128), obox())
+    op.evaluate("window.__notify('Messages','Maya Chen','See you at 8')")
+    op.wait_for_timeout(1400)
+    chk("a notification takes the island from the player", "Maya Chen" in otext(), otext())
+    op.evaluate("window.__music('Kesariya','Arijit Singh',true)")      # the next 1.5 s poll
+    op.wait_for_timeout(600)
+    chk("the next player poll leaves the notification alone", "Maya Chen" in otext(), otext())
+    chk("and does not resize the island under it", near(obox(), 318, 94), obox())
+    op.wait_for_timeout(6400)
+    g = settle_box()
+    chk("the notification still gets its full time on screen", near(g, 130, 38), g)
+    op.evaluate("window.__music('Kesariya','Arijit Singh',true)")
+    op.wait_for_timeout(1500)
+    chk("the player is back once the notification is gone",
+        near(obox(), 318, 128) and "Kesariya" in otext(), obox())
+
+    op.evaluate("window.__call('Ravi Kumar','Incoming call')")
+    op.wait_for_timeout(1500)
+    chk("a ringing call takes the island from the player", near(obox(), 312, 88), obox())
+    op.evaluate("window.__music('Kesariya','Arijit Singh',true)")
+    op.wait_for_timeout(600)
+    chk("the player poll leaves a ringing call alone", "Ravi" in otext(), otext())
+    chk("the answer buttons are still there while it rings",
+        op.eval_on_selector_all("#content .btn.green", "els=>els.length") == 1
+        and op.eval_on_selector_all("#content .btn.red", "els=>els.length") == 1)
+    op.evaluate("window.__callEnd()")
+    op.wait_for_timeout(1500)
+    op.evaluate("window.__music('Kesariya','Arijit Singh',true)")
+    op.wait_for_timeout(1500)
+    chk("the player returns when the call ends",
+        near(obox(), 318, 128) and "Kesariya" in otext(), obox())
+    op.evaluate("window.__musicEnd()")
+    op.wait_for_timeout(1600)
+    chk("and leaves again when the music stops", near(obox(), 130, 38), obox())
+
     op.evaluate("window.__setMax(240)"); op.evaluate("window.__setState('music')"); op.wait_for_timeout(1500)
     chk("overlay honours the max width it is given", obox()["w"] <= 240, obox())
     chk("overlay has no errors", len(oerrs) == 0, oerrs[:3])

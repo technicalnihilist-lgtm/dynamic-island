@@ -74,7 +74,22 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (96 checks, all passing).
+reproduced, fixed and covered by `tools/test_app.py` (107 checks, all passing).
+
+### 1.7.6 — optimisation slot 3
+
+1. **The player stopped taking the island back from a call and from a notification.** The service reads
+   the phone's media session every 1.5 s while something plays, and it re-sent the track whenever the
+   island was showing anything other than the player — so the very next poll grabbed the island back
+   from whatever had just opened. A notification that is meant to sit there for seven seconds lived
+   about one and a half, and a ringing call lost its green and red buttons while the phone was still
+   ringing. The player now keeps its data fresh but waits its turn: the poll only re-asserts the track
+   when the island is idle, and the overlay refuses to be handed over while a call or a notification
+   owns it. Both paths recover on their own — the call ending or the notification dismissing drops the
+   island to idle, and the next poll brings the player back. The same change removes an eval into the
+   WebView on every tick for as long as a call or a notification is up. The suite drives the poll from
+   the overlay side: a notification survives the next player report and still gets its full time, a
+   ringing call keeps both answer buttons, and the player returns in both cases.
 
 ### 1.7.5 — optimisation slot 1
 
