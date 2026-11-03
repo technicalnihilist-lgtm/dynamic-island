@@ -21,6 +21,7 @@ import android.media.session.MediaSessionManager;
 import android.media.session.PlaybackState;
 import android.os.Build;
 import android.os.Handler;
+import android.os.HandlerThread;
 import android.os.IBinder;
 import android.os.Looper;
 import android.util.DisplayMetrics;
@@ -89,6 +90,12 @@ public class IslandService extends Service {
     private float density = 2f;
     private boolean screenOn = true;
     private long mediaPollDelay = LAZY_POLL_MS;
+    /* the media read is binder traffic, so it runs on its own thread and only
+       its answer comes back to the main thread */
+    private HandlerThread mediaThread;
+    private Handler mediaIo;
+    private boolean mediaBusy = false;
+    private volatile boolean mediaStopped = false;
     private static boolean pendingLock = true;
     private static boolean hasPendingLock = false;
     private static IslandService sInstance;
@@ -112,6 +119,15 @@ public class IslandService extends Service {
         wm = (WindowManager) getSystemService(WINDOW_SERVICE);
         density = getResources().getDisplayMetrics().density;
         loadPrefs();
+        try {
+            mediaThread = new HandlerThread("island-media");
+            mediaThread.start();
+            mediaIo = new Handler(mediaThread.getLooper());
+        } catch (Throwable ignored) {
+            /* no thread to be had: the read falls back to the main thread */
+            mediaThread = null;
+            mediaIo = null;
+        }
         try {
             IntentFilter f = new IntentFilter();
             f.addAction(Intent.ACTION_SCREEN_ON);
@@ -148,7 +164,16 @@ public class IslandService extends Service {
 
     @Override
     public void onDestroy() {
+        mediaStopped = true;
         ui.removeCallbacks(mediaTick);
+        if (mediaThread != null) {
+            try {
+                mediaThread.quitSafely();
+            } catch (Throwable ignored) {
+            }
+            mediaThread = null;
+            mediaIo = null;
+        }
         try {
             unregisterReceiver(screenRx);
         } catch (Throwable ignored) {
@@ -216,7 +241,6 @@ public class IslandService extends Service {
         @Override
         public void run() {
             pollMedia();
-            ui.postDelayed(this, mediaPollDelay);
         }
     };
 
@@ -236,11 +260,76 @@ public class IslandService extends Service {
         }
     };
 
+    /* Reading the phone's media sessions is synchronous binder traffic into
+       system_server: getActiveSessions, a getPlaybackState for every session in
+       the list, and then a getMetadata and another getPlaybackState for the one
+       that was picked. Four to six blocking round trips, every 1.5 s for as long
+       as anything is playing - and the whole loop ran on the main thread, the
+       one drawing the island's springs. On a phone with a busy system_server
+       that is a stutter in the morph, on a timer, once a second and a half.
+       The read now happens on its own thread and only its answer comes back to
+       the main thread, where every field the service owns is still written in
+       one place. Nothing else about the loop changed: the same sessions, the
+       same preference for the playing one, the same cadence, the same pushes
+       into the page, the same backing off when there is nothing to read. */
     private void pollMedia() {
-        if (!pageReady) return;
+        if (!pageReady) {
+            scheduleMediaPoll();
+            return;
+        }
+        if (mediaBusy) return;                  /* a read is already in flight */
+        final String knownPkg = mediaPkg;
+        if (mediaIo == null) {                  /* no thread to be had: read here */
+            applyMedia(readMedia(knownPkg));
+            scheduleMediaPoll();
+            return;
+        }
+        mediaBusy = true;
+        try {
+            mediaIo.post(new Runnable() {
+                @Override
+                public void run() {
+                    final MediaSnapshot snap = readMedia(knownPkg);
+                    ui.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            mediaBusy = false;
+                            applyMedia(snap);
+                            scheduleMediaPoll();
+                        }
+                    });
+                }
+            });
+        } catch (Throwable t) {
+            mediaBusy = false;
+            mediaPollDelay = LAZY_POLL_MS;
+            scheduleMediaPoll();
+        }
+    }
+
+    private void scheduleMediaPoll() {
+        ui.removeCallbacks(mediaTick);
+        if (!mediaStopped && screenOn) ui.postDelayed(mediaTick, mediaPollDelay);
+    }
+
+    private static final int MEDIA_FAILED = 0, MEDIA_NONE = 1, MEDIA_OK = 2;
+
+    /** what one read of the phone's players found, carried across threads */
+    private static final class MediaSnapshot {
+        int status = MEDIA_FAILED;
+        MediaController controller;
+        String pkg = "";
+        String title;
+        String artist;
+        boolean playing = false;
+    }
+
+    /** everything that blocks: binder calls only, no service state written here */
+    private MediaSnapshot readMedia(String knownPkg) {
+        MediaSnapshot snap = new MediaSnapshot();
         try {
             MediaSessionManager msm = (MediaSessionManager) getSystemService(MEDIA_SESSION_SERVICE);
-            if (msm == null) return;
+            if (msm == null) return snap;
             List<MediaController> list = msm.getActiveSessions(new ComponentName(this, NotifListener.class));
             MediaController playing = null, known = null;
             if (list != null) {
@@ -249,63 +338,80 @@ public class IslandService extends Service {
                     if (ps == null) continue;
                     int st = ps.getState();
                     if (st == PlaybackState.STATE_PLAYING && playing == null) playing = c;
-                    if (known == null && mediaPkg.equals(c.getPackageName())) known = c;
+                    if (known == null && knownPkg != null && knownPkg.equals(c.getPackageName())) known = c;
                 }
             }
             MediaController target = playing != null ? playing : known;
             if (target == null) {
-                /* There is nothing left to read, so there is nothing to read
-                   quickly for. The cadence used to stay wherever it had got to
-                   while the track was playing, so the first time any player
-                   closed its session instead of pausing - a swipe out of recents,
-                   a video that finished - the service went on waking every 1.5 s
-                   for ever to ask system_server about a session that was gone. */
-                mediaPollDelay = LAZY_POLL_MS;
-                if (mediaPkg.length() > 0) {
-                    mediaPkg = "";
-                    media = null;
-                    lastMediaSig = "";
-                    eval("window.__musicEnd&&window.__musicEnd()");
-                }
-                return;
+                snap.status = MEDIA_NONE;
+                return snap;
             }
-            media = target;
-            mediaPkg = target.getPackageName();
             MediaMetadata md = target.getMetadata();
             String title = md == null ? null : str(md.getString(MediaMetadata.METADATA_KEY_TITLE));
             String artist = md == null ? null : str(md.getString(MediaMetadata.METADATA_KEY_ARTIST));
-            if (title == null) title = mediaPkg;
+            snap.pkg = target.getPackageName();
+            snap.title = title == null ? snap.pkg : title;
+            snap.artist = artist;
             PlaybackState ps = target.getPlaybackState();
-            boolean isPlaying = ps != null && ps.getState() == PlaybackState.STATE_PLAYING;
-            /* poll briskly while something is playing, lazily when idle */
-            mediaPollDelay = isPlaying ? FAST_POLL_MS : LAZY_POLL_MS;
-            /* Reading the session is cheap; crossing into the WebView is not, and
-               the island rebuilds part of its DOM for every push. So only speak
-               when the track, the artist or the play state changed - or when the
-               island has fallen back to idle and needs the player again. */
-            String sig = title + '\0' + (artist == null ? "" : artist) + '\0' + isPlaying;
-            /* A call or a notification owns the island until it finishes, so the
-               player waits its turn. Re-asserting the track on the next tick
-               used to take the island back from them - a notification with
-               seven seconds on screen lived one and a half, and a ringing call
-               lost its green and red buttons while the phone was still
-               ringing - and it cost an eval into the WebView on every tick for
-               as long as they were up. Idle is the only state that needs the
-               player restored, so it is the only one that gets a push. */
-            boolean islandFree = "idle".equals(currentState) || "music".equals(currentState);
-            if (islandFree && (!sig.equals(lastMediaSig) || !"music".equals(currentState))) {
-                lastMediaSig = sig;
-                eval("window.__music&&window.__music("
-                        + JSONObject.quote(title) + ","
-                        + JSONObject.quote(artist == null ? "" : artist) + ","
-                        + isPlaying + ")");
-            }
+            snap.playing = ps != null && ps.getState() == PlaybackState.STATE_PLAYING;
+            snap.controller = target;
+            snap.status = MEDIA_OK;
         } catch (Throwable ignored) {
+            snap.status = MEDIA_FAILED;
+        }
+        return snap;
+    }
+
+    /** the answer, applied on the main thread */
+    private void applyMedia(MediaSnapshot snap) {
+        if (snap == null || snap.status == MEDIA_FAILED) {
             /* A read that failed says nothing about playback, so it is no reason
                to stay at the playing cadence on the strength of an older, happy
                read - notification access being revoked while music plays would
                otherwise leave it throwing every 1.5 s for ever. */
             mediaPollDelay = LAZY_POLL_MS;
+            return;
+        }
+        if (snap.status == MEDIA_NONE) {
+            /* There is nothing left to read, so there is nothing to read
+               quickly for. The cadence used to stay wherever it had got to
+               while the track was playing, so the first time any player
+               closed its session instead of pausing - a swipe out of recents,
+               a video that finished - the service went on waking every 1.5 s
+               for ever to ask system_server about a session that was gone. */
+            mediaPollDelay = LAZY_POLL_MS;
+            if (mediaPkg.length() > 0) {
+                mediaPkg = "";
+                media = null;
+                lastMediaSig = "";
+                eval("window.__musicEnd&&window.__musicEnd()");
+            }
+            return;
+        }
+        media = snap.controller;
+        mediaPkg = snap.pkg;
+        /* poll briskly while something is playing, lazily when idle */
+        mediaPollDelay = snap.playing ? FAST_POLL_MS : LAZY_POLL_MS;
+        /* Reading the session is cheap; crossing into the WebView is not, and
+           the island rebuilds part of its DOM for every push. So only speak
+           when the track, the artist or the play state changed - or when the
+           island has fallen back to idle and needs the player again. */
+        String sig = snap.title + '\0' + (snap.artist == null ? "" : snap.artist) + '\0' + snap.playing;
+        /* A call or a notification owns the island until it finishes, so the
+           player waits its turn. Re-asserting the track on the next tick
+           used to take the island back from them - a notification with
+           seven seconds on screen lived one and a half, and a ringing call
+           lost its green and red buttons while the phone was still
+           ringing - and it cost an eval into the WebView on every tick for
+           as long as they were up. Idle is the only state that needs the
+           player restored, so it is the only one that gets a push. */
+        boolean islandFree = "idle".equals(currentState) || "music".equals(currentState);
+        if (islandFree && (!sig.equals(lastMediaSig) || !"music".equals(currentState))) {
+            lastMediaSig = sig;
+            eval("window.__music&&window.__music("
+                    + JSONObject.quote(snap.title) + ","
+                    + JSONObject.quote(snap.artist == null ? "" : snap.artist) + ","
+                    + snap.playing + ")");
         }
     }
 

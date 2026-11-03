@@ -76,6 +76,23 @@ Any earlier version installs straight over the top — same signing key.
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
 reproduced, fixed and covered by `tools/test_app.py` (117 checks, all passing).
 
+### 1.7.9 — optimisation slot 3
+
+1. **The player poll stopped blocking the thread that draws the island.** Every 1.5 s, for as long as
+   anything is playing, the service asked `system_server` what was playing — `getActiveSessions`, then a
+   `getPlaybackState` for every session it got back, then a `getMetadata` and another `getPlaybackState`
+   for the one it picked. Four to six synchronous binder round trips, and the loop ran on the main
+   thread, the same one stepping the island's springs and pushing it into the WebView. On a phone whose
+   `system_server` is busy that is a visible stutter in the morph, arriving on a timer, once a second
+   and a half, for ever. The read now happens on a thread of its own and only its answer — a small
+   snapshot of what it found — is handed back to the main thread, where every field the service owns is
+   still written in one place, so there is no new shared state to race over. The loop itself is
+   unchanged: the same sessions, the same preference for the playing one, the same 1.5 s / 6 s cadence,
+   the same silence when nothing changed, the same backing off when the player is gone or the read
+   fails, and the same stop while the screen is off. Nothing on screen changed, and this lives entirely
+   in `IslandService.java`, so it is verified by the sources compiling and by reading the loop — the
+   suite still passes 117 checks.
+
 ### 1.7.8 — optimisation slot 10
 
 1. **Dragging a position slider no longer crosses into Java on every frame.** The horizontal and
