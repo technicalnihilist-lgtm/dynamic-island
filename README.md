@@ -74,7 +74,24 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (125 checks, all passing).
+reproduced, fixed and covered by `tools/test_app.py` (135 checks, all passing).
+
+### 1.7.11 — optimisation slot 8
+
+1. **The keyboard could not press a single button inside the island.** The island carries its own
+   Enter/Space shortcut — with the island focused, either key expands or collapses it. The buttons
+   inside it (Play, Next, Accept, Decline, Mute, Speaker) are real focusable buttons, and their
+   `keydown` bubbles up to that shortcut, which called `preventDefault()` — cancelling the button's own
+   activation — and then clicked the island itself. So a keyboard or switch-access user who tabbed to
+   Play and pressed Enter did not pause the music: the island collapsed to idle and the focus fell off
+   it. Every control in the island behaved the same way, and none of them could be reached without a
+   finger. The shortcut now only handles a key that arrives with the island itself focused; anything
+   from inside is left to the button that owns it, which then activates exactly as it does under a
+   mouse. Nothing on screen changed — the same keys do the same things to the island, and the buttons
+   now respond to the keys the platform already gives them. `tools/test_app.py` gains 10 checks
+   (125 → 135): Enter and Space on Play toggle playback instead of closing the island, Enter on Accept
+   answers the call, and the island's own shortcut still opens and collapses it when the island is the
+   thing that has focus.
 
 ### 1.7.10 — optimisation slot 3
 

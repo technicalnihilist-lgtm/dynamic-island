@@ -306,6 +306,53 @@ with sync_playwright() as p:
         sp.eval_on_selector("#island", "e=>Math.round(e.getBoundingClientRect().width)"))
     small.close()
 
+    # ---- the keyboard belongs to the buttons, not to the island ----------
+    # Enter or Space on the island itself expands/collapses it, but the island
+    # also holds real buttons. Their keydown bubbled up to that shortcut, which
+    # cancelled the button's own activation and clicked the island instead: a
+    # keyboard user pressing Play, Accept or Decline closed the island.
+    kb = b.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=3, color_scheme="dark")
+    kb.add_init_script(MOCK)
+    kp = kb.new_page()
+    kerrs = []
+    kp.on("pageerror", lambda e: kerrs.append(str(e)))
+    kp.goto(URL); kp.wait_for_timeout(900)
+    kp.click('#states .chip[data-s="music"]'); kp.wait_for_timeout(1700)
+    chk("the player is open for the keyboard test", near(box_of(kp), 318, 128), box_of(kp))
+
+    play_label = lambda: kp.eval_on_selector('#content [data-a="play"]', "e=>e.getAttribute('aria-label')")
+    paused = lambda: kp.evaluate("!!document.querySelector('#content .rows.paused')")
+    kp.focus('#content [data-a="play"]')
+    chk("a button inside the island can take focus",
+        kp.evaluate("document.activeElement && document.activeElement.getAttribute('data-a')") == "play")
+    kp.keyboard.press("Enter"); kp.wait_for_timeout(1200)
+    chk("Enter on Play pauses, it does not collapse the island",
+        kp.evaluate("window.__di.state") == "music" and near(box_of(kp), 318, 128), box_of(kp))
+    chk("Enter on Play really pressed the button", paused() and play_label() == "Play", (paused(), play_label()))
+    kp.keyboard.press(" "); kp.wait_for_timeout(1200)
+    chk("Space on Play resumes, it does not collapse the island",
+        kp.evaluate("window.__di.state") == "music" and not paused() and play_label() == "Pause",
+        (kp.evaluate("window.__di.state"), paused(), play_label()))
+
+    kp.click('#states .chip[data-s="incoming"]'); kp.wait_for_timeout(1700)
+    kp.focus('#content [data-a="accept"]')
+    kp.keyboard.press("Enter"); kp.wait_for_timeout(1700)
+    chk("Enter on Accept answers the call, it does not dismiss the island",
+        kp.evaluate("window.__di.state") == "ongoing", kp.evaluate("window.__di.state"))
+
+    # the island's own shortcut still works when the island has the focus
+    kp.evaluate("window.__di.setState('music')"); kp.wait_for_timeout(1700)
+    kp.focus("#island")
+    chk("the island itself can take focus", kp.evaluate("document.activeElement && document.activeElement.id") == "island")
+    kp.keyboard.press("Enter"); kp.wait_for_timeout(1700)
+    chk("Enter on the island itself still collapses it",
+        kp.evaluate("window.__di.state") == "idle" and near(box_of(kp), 130, 38), box_of(kp))
+    kp.keyboard.press(" "); kp.wait_for_timeout(1700)
+    chk("Space on the island itself still opens it again",
+        kp.evaluate("window.__di.state") == "music", kp.evaluate("window.__di.state"))
+    chk("the keyboard page has no errors", len(kerrs) == 0, kerrs[:3])
+    kb.close()
+
     # ---- the wallpaper clock ---------------------------------------------
     # it used to wake every second to redraw something that only changes once a
     # minute, and to reformat the date string on every one of those wakeups

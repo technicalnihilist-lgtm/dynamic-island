@@ -705,7 +705,15 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
     if(state === 'idle') openIsland(); else closeIsland();
     e.stopPropagation();
   });
+  /* The island's own Enter/Space shortcut. It has to ignore keys that belong to
+     the buttons inside it: a keydown from a focused control bubbles up to here,
+     and this handler used to preventDefault() it - which cancels the button's
+     own activation - and then click the island itself, which collapsed the
+     whole island. So a keyboard user could not press Play, Accept, Decline or
+     Next at all: every one of them just closed the island. Only a key that
+     arrives with the island focused is the island's to handle. */
   island.addEventListener('keydown', function(e){
+    if(e.target !== island) return;
     if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); island.click(); }
   });
   /* tapping the wallpaper collapses an open island */
