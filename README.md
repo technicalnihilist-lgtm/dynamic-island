@@ -74,7 +74,23 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (117 checks, all passing).
+reproduced, fixed and covered by `tools/test_app.py` (125 checks, all passing).
+
+### 1.7.10 — optimisation slot 3
+
+1. **The position maths stopped measuring the stage on every frame.** `applyPos()` works out where the
+   island sits from the stage's box, and it ran on every frame of a size-slider drag, on every state
+   change and again whenever a morph settled — reading `getBoundingClientRect()` each time. `paint()` has
+   just written the island's `width` and `height`, so that read flushes the style and layout those
+   writes had dirtied: write, flush, write, flush, sixty times a second, to fetch a box that only changes
+   when the window does or the sheet resizes. The box is held in two numbers now and refreshed where it
+   really changes — a resize, a rotation, the sheet opening or closing, the accordion, and a
+   `ResizeObserver` on the stage where the WebView has one. The island lands in exactly the same place:
+   the offsets are `0.0px`/`123.1px` before and after, and `474.6px` after the sheet collapses, as before.
+   An 80-frame slider drag now reads the stage 0 times instead of 80. `tools/test_app.py` gains 8 checks
+   (117 → 125) that count the reads and prove the cached box is not stale after a resize, after the
+   sheet collapses and after a stage that resized without the window doing so. Nothing on screen
+   changed.
 
 ### 1.7.9 — optimisation slot 3
 

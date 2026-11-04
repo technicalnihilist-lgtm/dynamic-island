@@ -80,6 +80,18 @@ VIEWPORT_FAKE = """
 })();
 """
 
+STAGE_FAKE = """
+(function(){
+  /* counts every read of the stage's box, the way a forced layout is asked for */
+  var orig = Element.prototype.getBoundingClientRect;
+  window.__stageReads = 0;
+  Element.prototype.getBoundingClientRect = function(){
+    if (this && this.id === 'stage') window.__stageReads++;
+    return orig.apply(this, arguments);
+  };
+})();
+"""
+
 fails = []
 checks = [0]
 def chk(name, cond, extra=""):
@@ -535,6 +547,84 @@ with sync_playwright() as p:
     chk("and does not squash it any further than the clamp", w >= 260, w)
     chk("the render page has no errors", len(lerrs) == 0, lerrs[:3])
     lay.close()
+
+    # ---- the position maths must not force a layout every frame -----------
+    # applyPos() runs on every frame of a size-slider drag, and it read the
+    # stage's box each time. paint() had just written the island's width and
+    # height, so that read flushed the layout those writes had dirtied: write,
+    # flush, write, flush, sixty times a second, for a box that only changes
+    # when the window does or the sheet resizes.
+    pos2 = b.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=3, color_scheme="dark")
+    pos2.add_init_script(MOCK)
+    pos2.add_init_script(STAGE_FAKE)
+    qp = pos2.new_page()
+    qerrs = []
+    qp.on("pageerror", lambda e: qerrs.append(str(e)))
+    qp.goto(URL); qp.wait_for_timeout(900)
+    chk("the stage read counter is wired up",
+        qp.evaluate("(function(){window.__stageReads=0; void document.getElementById('stage').getBoundingClientRect(); return window.__stageReads})()") == 1)
+    qp.evaluate("window.__stageReads = 0")
+    qp.evaluate("""new Promise(function(res){
+        var el = document.getElementById('sw'), n = 0;
+        window.__steps = 0;
+        function step(){
+          el.value = String(60 + (n % 60));        /* keeps changing, like a drag */
+          el.dispatchEvent(new Event('input', {bubbles:true}));
+          window.__steps++;
+          if(++n < 80) requestAnimationFrame(step); else res(1);
+        }
+        requestAnimationFrame(step);
+      })""")
+    qp.wait_for_timeout(300)
+    steps = qp.evaluate("window.__steps")
+    sreads = qp.evaluate("window.__stageReads")
+    chk("dragging a size slider does not measure the stage on every frame",
+        steps >= 60 and sreads <= 1, (sreads, steps))
+
+    # the cached box still has to follow the stage, or the island stops
+    # honouring the position it is set to
+    geo = ("(function(){var s=document.getElementById('stage').getBoundingClientRect(),"
+           "i=document.getElementById('island').getBoundingClientRect();"
+           "return {top:Math.round(s.top),h:Math.round(s.height),ib:Math.round(i.bottom),"
+           "il:Math.round(i.left),ir:Math.round(i.right),iw:Math.round(i.width)}})()")
+    qp.eval_on_selector("#sx", "e=>{e.value=0;e.dispatchEvent(new Event('input',{bubbles:true}))}")
+    qp.eval_on_selector("#sy", "e=>{e.value=70;e.dispatchEvent(new Event('input',{bubbles:true}))}")
+    qp.wait_for_timeout(900)
+    g = qp.evaluate(geo)
+    chk("0% horizontal still puts the island at the left edge of the stage",
+        abs(g["il"] - 0) < 8, g)
+    want = g["top"] + 0.70 * (g["h"] - 38) + 38
+    chk("70% vertical still puts the island where it says", abs(g["ib"] - want) < 5, (g, round(want)))
+
+    # the stage also changes size with no window resize at all - the sheet
+    # animating, the accordion, a WebView that re-lays itself out. A
+    # ResizeObserver catches those, and hands over the new box already measured
+    qp.evaluate("document.getElementById('sheet').style.maxHeight = '140px'")
+    qp.wait_for_timeout(800)
+    g2 = qp.evaluate(geo)
+    want2 = g2["top"] + 0.70 * (g2["h"] - 38) + 38
+    chk("the island follows a stage that resized without the window doing so",
+        g2["h"] > g["h"] + 100 and abs(g2["ib"] - want2) < 5, (g, g2, round(want2)))
+
+    # and the sheet collapsing, which was already handled, must still work
+    qp.evaluate("document.getElementById('sheet').style.maxHeight = ''")
+    qp.wait_for_timeout(900)
+    qp.click("#grab")
+    qp.wait_for_timeout(1400)
+    g3 = qp.evaluate(geo)
+    want3 = g3["top"] + 0.70 * (g3["h"] - 38) + 38
+    chk("the island follows the stage when the sheet collapses",
+        g3["h"] > g["h"] + 100 and abs(g3["ib"] - want3) < 5, (g, g3, round(want3)))
+
+    # a window that really resizes must refresh the cached box, not go stale
+    qp.set_viewport_size({"width": 320, "height": 640})
+    qp.wait_for_timeout(1200)
+    g4 = qp.evaluate(geo)
+    want4 = g4["top"] + 0.70 * (g4["h"] - 38) + 38
+    chk("a real resize refreshes the cached stage box",
+        abs(g4["ib"] - want4) < 6 and g4["iw"] <= 320, (g4, round(want4)))
+    chk("the position page has no errors", len(qerrs) == 0, qerrs[:3])
+    pos2.close()
 
     b.close()
 

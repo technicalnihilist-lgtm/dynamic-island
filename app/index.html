@@ -386,15 +386,28 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
     settleT = setTimeout(function(){ settleT = null; snapAll(); }, 1500);
   }
   /* where the island sits inside the stage: the same percentages drive the
-     floating window, so what you set here is what you get out there */
+     floating window, so what you set here is what you get out there.
+     applyPos() runs on every frame of a size-slider drag, on every state change
+     and again when a morph settles, and it used to read the stage's box each
+     time. paint() has just written the island's width and height, so that read
+     flushes the style and layout those writes had dirtied - write, flush,
+     write, flush, sixty times a second - for a box that only changes when the
+     window does or the sheet resizes. It is held in two numbers now and
+     refreshed where the stage really changes: a resize, a rotation, the sheet
+     opening or closing, the accordion, and a ResizeObserver where the WebView
+     has one. */
   var lastOffX = null, lastOffY = null;
-  function invalidateStage(){}
-  function applyPos(){
+  var stageW = 0, stageH = 0;
+  function invalidateStage(){
     var st = stage.getBoundingClientRect();
-    var w = Math.min(spW.t, st.width);
-    var h = Math.min(spH.t, st.height);
-    var availX = Math.max(0, st.width - w);
-    var availY = Math.max(0, st.height - h);
+    stageW = st.width; stageH = st.height;
+  }
+  function applyPos(){
+    if(!stageW || !stageH) invalidateStage();
+    var w = Math.min(spW.t, stageW);
+    var h = Math.min(spH.t, stageH);
+    var availX = Math.max(0, stageW - w);
+    var availY = Math.max(0, stageH - h);
     var offX = (S.px/100)*availX - availX/2;
     var offY = (S.py/100)*availY;
     if(offX === lastOffX && offY === lastOffY) return;
@@ -782,6 +795,11 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
       var open = !acc.classList.contains('closed');
       acc.classList.toggle('closed', open);
       head.setAttribute('aria-expanded', open ? 'false' : 'true');
+      /* closing the accordion shrinks the sheet, and on a screen tall enough
+         that the sheet was not already at its 64vh cap that grows the stage
+         under the island; its share of it is recomputed once the transition is
+         over, the same way the sheet's own collapse already did it. */
+      setTimeout(function(){ invalidateStage(); applyPos(); }, 480);
       haptic('light');
     });
   })();
@@ -865,6 +883,7 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
 
   /* ============ boot ============ */
   readViewport();
+  invalidateStage();
   applyInsets();
   loadSettingsIntoUI();
   setPower(!!S.on, true);
@@ -879,6 +898,19 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   window.addEventListener('orientationchange', function(){
     setTimeout(function(){ readViewport(); invalidateStage(); applyTargets(false); }, 120);
   });
+  /* every way the stage can change size the window listeners do not see -
+     the sheet animating, the accordion, a WebView that resizes on its own -
+     arrives here, and arrives with the new box already measured */
+  if(typeof ResizeObserver === 'function'){
+    try{
+      new ResizeObserver(function(entries){
+        var r = entries[entries.length-1].contentRect;
+        if(r.width === stageW && r.height === stageH) return;
+        stageW = r.width; stageH = r.height;
+        applyPos();
+      }).observe(stage);
+    }catch(e){}
+  }
   setTimeout(function(){ spW.v += 200; spH.v += 80; kick(); }, 320);
 })();
 </script>
