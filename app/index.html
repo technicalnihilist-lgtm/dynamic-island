@@ -436,7 +436,7 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   /* ============ state machine ============ */
   var state = 'idle';
   var lastOpen = 'music';          // BUG FIX: remember the real last state
-  var secs = 0, callTick = null, promoteT = null, swapT = null, swapToken = 0;
+  var callStart = 0, callNode = null, callTick = null, promoteT = null, swapT = null, swapToken = 0;
   var ti = 0, playing = true;
   var tracks = [['Glass Hours','Neon Tide'],['Soft Focus','Lumen'],['Bounce Theory','Spring Club']];
 
@@ -489,14 +489,27 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
     }
   };
 
+  /* The call timer used to count its own ticks - secs++ once a second - which
+     assumes every tick arrives. A throttled WebView does not deliver them: a
+     page in the background is clamped to one timer a minute, a phone in doze
+     misses them altogether, and the floating island's window behind another
+     app is throttled too. Every missed tick was a second the timer fell behind
+     the call, so coming back to the app after five minutes away showed a live
+     call that had been going for five seconds. It reads the wall clock now:
+     a late tick only delays the redraw, it cannot lose time, and returning to
+     the app re-syncs it at once instead of a minute later. The node it writes
+     into is looked up once per call rather than once a second. */
+  function paintCallTime(){
+    if(!callNode) return;
+    var s = Math.floor((Date.now() - callStart) / 1000);
+    if(s < 0) s = 0;
+    callNode.textContent = ('0'+Math.floor(s/60)).slice(-2)+':'+('0'+(s%60)).slice(-2);
+  }
   function startTimers(){
     if(state === 'ongoing'){
-      secs = 0;
-      callTick = setInterval(function(){
-        secs++;
-        var t = content.querySelector('[data-role="time"]');
-        if(t) t.textContent = ('0'+Math.floor(secs/60)).slice(-2)+':'+('0'+(secs%60)).slice(-2);
-      }, 1000);
+      callStart = Date.now();
+      callNode = content.querySelector('[data-role="time"]');
+      callTick = setInterval(paintCallTime, 1000);
     } else if(state === 'calling'){
       /* BUG FIX: own handle, so it can never fire after you leave the state */
       promoteT = setTimeout(function(){
@@ -506,7 +519,7 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
     }
   }
   function clearTimers(){
-    if(callTick){ clearInterval(callTick); callTick = null; }
+    if(callTick){ clearInterval(callTick); callTick = null; callNode = null; }
     if(promoteT){ clearTimeout(promoteT); promoteT = null; }
     if(swapT){ clearTimeout(swapT); swapT = null; }
   }
@@ -863,7 +876,7 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
     scheduleClock();
   }
   document.addEventListener('visibilitychange', function(){
-    if(!document.hidden){ readViewport(); refreshClock(); }
+    if(!document.hidden){ readViewport(); refreshClock(); paintCallTime(); }
   });
   window.addEventListener('focus', refreshClock);
 

@@ -74,7 +74,24 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (153 checks, all passing).
+reproduced, fixed and covered by `tools/test_app.py` (159 checks, all passing).
+
+### 1.7.15 — optimisation slot 10
+
+1. **A live call's timer fell behind the call whenever the page was throttled.** The timer did
+   `secs++` once a second, which quietly assumes every tick arrives. Android does not deliver them:
+   a backgrounded WebView is clamped to one timer a minute, a phone in doze misses them altogether,
+   and the floating island's overlay window is throttled too. Every missed tick was a second the
+   timer lost, so leaving the app during a call and coming back five minutes later showed a call
+   that had been running for five seconds — and the floating island, the one you actually watch,
+   drifted the same way behind another app. It now reads the wall clock against the moment the call
+   view was built, so a late tick only delays the redraw instead of losing time, and returning to the
+   app re-syncs it at once through the existing `visibilitychange` handler rather than up to a minute
+   later. The `[data-role="time"]` node is looked up once per call instead of once per second.
+   Nothing on screen changes: the text is the same `MM:SS` from the same instant.
+   `tools/test_app.py` gains 6 checks (153 → 159): a tick that arrives 65 seconds late shows 01:05 and
+   not 00:02, five minutes lost to a frozen page are recovered on the way back, and the floating
+   island's own timer does the same. The two drift checks fail against the old code.
 
 ### 1.7.14 — optimisation slot 6
 

@@ -447,9 +447,42 @@ with sync_playwright() as p:
     chk("the wakeup page has no errors", len(werrs) == 0, werrs[:3])
     wake.close()
 
+    # ---- the call timer reads the clock, not its own ticks ----------------
+    # the timer used to do secs++ once a second, which assumes every tick
+    # arrives. A backgrounded WebView is clamped to one timer a minute and a
+    # phone in doze drops them outright, so every missed tick was a second the
+    # call timer fell behind the call that was still running.
+    tim = b.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=3, color_scheme="dark")
+    tim.add_init_script(MOCK)
+    tim.add_init_script(CLOCK_FAKE)
+    tp = tim.new_page()
+    terrs = []
+    tp.on("pageerror", lambda e: terrs.append(str(e)))
+    tp.goto(URL); tp.wait_for_timeout(900)
+    tsecs = lambda: tp.eval_on_selector(
+        '#content [data-role="time"]',
+        "e=>{const p=e.textContent.split(':');return (+p[0])*60+(+p[1])}")
+    tp.click('#states .chip[data-s="incoming"]'); tp.wait_for_timeout(1400)
+    tp.click('#island [data-a="accept"]'); tp.wait_for_timeout(700)
+    chk("a call timer starts at zero", tsecs() == 0, tsecs())
+    # one tick arrives, sixty-five seconds late
+    tp.evaluate("window.__off += 65000")
+    tp.wait_for_timeout(1200)
+    chk("a tick that arrives late still shows the real call time",
+        65 <= tsecs() <= 68, tsecs())
+    # five more minutes pass with no tick at all, then the user comes back
+    tp.evaluate("window.__off += 300000")
+    tp.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
+    tp.wait_for_timeout(200)
+    chk("coming back to the app re-syncs a call timer that lost its ticks",
+        365 <= tsecs() <= 370, tsecs())
+    chk("the call timer page has no errors", len(terrs) == 0, terrs[:3])
+    tim.close()
+
     # ---- the overlay page itself -----------------------------------------
     ov = b.new_context(viewport={"width": 390, "height": 200}, device_scale_factor=3, color_scheme="dark")
     ov.add_init_script(MOCK)
+    ov.add_init_script(CLOCK_FAKE)
     op = ov.new_page()
     oerrs = []
     op.on("pageerror", lambda e: oerrs.append(str(e)))
@@ -507,6 +540,19 @@ with sync_playwright() as p:
     op.evaluate("window.__callEnd()")
     op.wait_for_timeout(1600)
     chk("ending the call collapses the island", near(obox(), 130, 38), obox())
+
+    # the floating island carries the same tick counter in a window Android
+    # throttles even harder than the app's own
+    op.evaluate("window.__setState('ongoing')"); op.wait_for_timeout(500)
+    osecs = lambda: op.eval_on_selector(
+        '#content [data-role="time"]',
+        "e=>{const p=e.textContent.split(':');return (+p[0])*60+(+p[1])}")
+    chk("the floating island's call timer starts at zero", osecs() == 0, osecs())
+    op.evaluate("window.__off += 125000")
+    op.wait_for_timeout(1200)
+    chk("a throttled floating island still shows the real call time",
+        125 <= osecs() <= 128, osecs())
+    op.evaluate("window.__setState('idle')"); op.wait_for_timeout(1500)
 
     # ---- real music ------------------------------------------------------
     op.evaluate("window.__music('Kesariya','Arijit Singh',true)")

@@ -159,7 +159,20 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
   var callData={ name:'Maya Chen', label:'Incoming call…', real:false };
   /* when a real player is running these come from its media session */
   var musicData={ title:'Glass Hours', artist:'Neon Tide', playing:true, real:false };
-  var ti=0, playing=true, secs=0, callTick=null;
+  var ti=0, playing=true, callTick=null, callStart=0, callNode=null;
+  /* The call timer used to count its own ticks (secs++ once a second), which
+     assumes the window is never throttled. It is: this page lives in a system
+     overlay window, and Android throttles timers for a WebView it does not
+     consider foreground - a call left running behind another app came back
+     minutes behind the real call. It reads the wall clock now, so a missed
+     tick only delays the redraw, and the node it writes into is looked up once
+     per call instead of once a second. */
+  function paintCallTime(){
+    if(!callNode) return;
+    var s=Math.floor((Date.now()-callStart)/1000);
+    if(s<0) s=0;
+    callNode.textContent=('0'+Math.floor(s/60)).slice(-2)+':'+('0'+(s%60)).slice(-2);
+  }
 
   var P={mic:'M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-3.1A7 7 0 0 0 19 11z',
     spk:'M3 9v6h4l5 5V4L7 9zm13.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4z',
@@ -233,7 +246,7 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     if(!BASE[next]) next='idle';
     if(next===state && !force) return;
     if(next!==state){ if(state!=='idle') lastOpen=state; state=next; }
-    if(callTick){ clearInterval(callTick); callTick=null; }
+    if(callTick){ clearInterval(callTick); callTick=null; callNode=null; }
     if(notifT){ clearTimeout(notifT); notifT=null; }
     targets();
     /* grow the native window first so nothing is clipped while it morphs */
@@ -248,12 +261,9 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
       content.innerHTML=VIEWS[state]();
       if(state!=='idle') setTimeout(function(){ if(my===token) content.classList.add('in'); },20);
       if(state==='ongoing'){
-        secs=0;
-        callTick=setInterval(function(){
-          secs++;
-          var t=content.querySelector('[data-role="time"]');
-          if(t) t.textContent=('0'+Math.floor(secs/60)).slice(-2)+':'+('0'+(secs%60)).slice(-2);
-        },1000);
+        callStart=Date.now();
+        callNode=content.querySelector('[data-role="time"]');
+        callTick=setInterval(paintCallTime,1000);
       }
       if(state==='notif') notifT=setTimeout(function(){ setState('idle'); },7000);
     }, state==='idle'?130:110);
