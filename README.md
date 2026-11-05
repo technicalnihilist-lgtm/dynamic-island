@@ -74,7 +74,25 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (135 checks, all passing).
+reproduced, fixed and covered by `tools/test_app.py` (144 checks, all passing).
+
+### 1.7.13 — optimisation slot 5
+
+1. **"Reset to default" silently turned the system-wide island off.** The button sits at the bottom of
+   the *Island look* card and puts the look and the position back, but it copied every key of the
+   settings defaults over the saved settings, `on` — the system-wide switch — among them, and told
+   neither the switch nor the service. Pressing it with the island floating left three things
+   disagreeing: the saved settings said off, the switch still said On, the knob still looked on, and
+   the floating window was still on screen. The disagreement surfaced on the next `__sysState` — the one
+   that arrives when you come back to the app — which saw "on is false, running is true" and stopped the
+   floating island, so a reset of the look looked like the island dying on its own some minutes later,
+   and it stayed off across launches because the wrong value had already been saved. The reset now
+   leaves the power switch exactly where the user put it; the switch has its own control and nothing
+   else in the sheet resets it. The look sliders, the position sliders and the lock-screen toggle still
+   return to their defaults, and nothing on screen changed. `tools/test_app.py` gains 9 checks
+   (135 → 144): with the island running, a reset puts the width back to 130 px, leaves the switch On,
+   sends no `stopOverlay`, saves `on: true`, and a following `__sysState` no longer stops the island.
+   Two of those nine fail against the old code.
 
 ### 1.7.12 — optimisation slot 1
 
