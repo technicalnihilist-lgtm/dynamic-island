@@ -199,6 +199,49 @@ with sync_playwright() as p:
     chk("preview mirrors the floating island", near(box(), 312, 88), box())
     chk("mirroring does not echo back to the overlay", last("setOverlayState")[1] == "music", last("setOverlayState"))
 
+    # ---- "Reset to default" must not touch the system-wide switch ---------
+    # the reset copied every default over the settings, `on` included, and told
+    # neither the service nor the switch: the stored settings said off, the
+    # switch still said On, the window was still on screen - and the next
+    # __sysState (the one that arrives when you come back to the app) saw that
+    # disagreement and stopped the floating island, as if it had died on its own
+    rst = b.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=3, color_scheme="dark")
+    rst.add_init_script(MOCK)
+    rp = rst.new_page()
+    rerrs = []
+    rp.on("pageerror", lambda e: rerrs.append(str(e)))
+    rp.goto(URL); rp.wait_for_timeout(900)
+    rp.evaluate("window.__sysState(true,false,false,'')"); rp.wait_for_timeout(200)
+    rp.click("#pw"); rp.wait_for_timeout(500)
+    chk("the switch turns the floating island on", "On" in rp.eval_on_selector("#pwLabel", "e=>e.textContent"))
+    chk("the island is running before the reset", rp.evaluate("window.__running") is True)
+    rp.eval_on_selector("#sw", "e=>{e.value=70;e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}))}")
+    rp.wait_for_timeout(1700)
+    chk("the width slider moved the island off its default",
+        abs(rp.eval_on_selector("#island", "e=>Math.round(e.getBoundingClientRect().width)") - 130) > 8,
+        rp.eval_on_selector("#island", "e=>Math.round(e.getBoundingClientRect().width)"))
+    rp.evaluate("window.__calls.length = 0")
+    rp.eval_on_selector("#btnReset", "e=>e.click()"); rp.wait_for_timeout(1700)
+    chk("reset puts the look back",
+        abs(rp.eval_on_selector("#island", "e=>Math.round(e.getBoundingClientRect().width)") - 130) <= 1,
+        rp.eval_on_selector("#island", "e=>Math.round(e.getBoundingClientRect().width)"))
+    chk("reset leaves the system-wide switch on",
+        "On" in rp.eval_on_selector("#pwLabel", "e=>e.textContent")
+        and rp.eval_on_selector("#pw", "e=>e.getAttribute('aria-checked')") == "true")
+    chk("reset does not stop the floating island",
+        "stopOverlay" not in rp.evaluate("window.__calls.map(c=>c[0])") and rp.evaluate("window.__running") is True)
+    chk("reset stores the switch as it is",
+        rp.evaluate("JSON.parse(localStorage.getItem('di.settings')).on") is True)
+    rp.evaluate("window.__calls.length = 0")
+    rp.evaluate("window.__sysState(true,true,false,'')"); rp.wait_for_timeout(300)
+    chk("coming back to the app keeps the island running",
+        rp.evaluate("window.__running") is True
+        and "stopOverlay" not in rp.evaluate("window.__calls.map(c=>c[0])")
+        and "On" in rp.eval_on_selector("#pwLabel", "e=>e.textContent"),
+        rp.evaluate("window.__calls.map(c=>c[0])"))
+    chk("the reset page has no errors", len(rerrs) == 0, rerrs[:3])
+    rst.close()
+
     # ---- the rest of the app ---------------------------------------------
     pg.eval_on_selector("#accHead", "e=>e.click()"); pg.wait_for_timeout(600)
     chk("accordion closes", pg.eval_on_selector("#accLook", "e=>e.classList.contains('closed')"))
