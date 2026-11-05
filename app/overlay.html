@@ -137,6 +137,22 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     if(w!==settledW||h!==settledH){ settledW=w; settledH=h; resize(w,h); }
   }
   function armSettle(){ if(settleT) clearTimeout(settleT); settleT=setTimeout(function(){ settleT=null; snapAll(); },1500); }
+  /* The island is drawn inside a native window cut to its own size, so a morph
+     that makes it bigger has to grow the window first or the island is clipped
+     at the old window's edges for the whole animation. setState did this; the
+     size sliders went through __setConfig, which only moved the targets, so
+     dragging Width or Height up on the floating island morphed it inside a
+     window still sized for the old box and the growing pill was cut off on all
+     four sides until the springs stopped and the settle resized it. Growing the
+     window early is invisible - it is transparent and the island is centred in
+     it - and it is what every path that can make the island bigger now does. */
+  function ensureWindow(){
+    var needW=Math.max(spW.x,spW.t), needH=Math.max(spH.x,spH.t);
+    if(needW>settledW||needH>settledH){
+      settledW=Math.round(needW); settledH=Math.round(needH);
+      resize(settledW,settledH);
+    }
+  }
 
   var state='idle', lastOpen='music', swapT=null, token=0, notifT=null;
   var notifData=['','',''];
@@ -219,11 +235,9 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     if(next!==state){ if(state!=='idle') lastOpen=state; state=next; }
     if(callTick){ clearInterval(callTick); callTick=null; }
     if(notifT){ clearTimeout(notifT); notifT=null; }
-    var beforeW=Math.max(spW.x,spW.t), beforeH=Math.max(spH.x,spH.t);
     targets();
     /* grow the native window first so nothing is clipped while it morphs */
-    var needW=Math.max(beforeW,spW.t), needH=Math.max(beforeH,spH.t);
-    if(needW>settledW||needH>settledH){ settledW=Math.round(needW); settledH=Math.round(needH); resize(settledW,settledH); }
+    ensureWindow();
     kick(); armSettle();
 
     var my=++token;
@@ -301,10 +315,10 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     if(typeof hm==='number') S.hm=hm;
     if(typeof rm==='number') S.rm=rm;
     if(typeof b==='number'){ S.bounce=b; recomputeDamping(); }
-    targets(); kick(); armSettle();
+    targets(); ensureWindow(); kick(); armSettle();
   };
   window.__setMax=function(px){
-    if(typeof px==='number' && px>80){ maxW=px; targets(); kick(); }
+    if(typeof px==='number' && px>80){ maxW=px; targets(); ensureWindow(); kick(); }
   };
   /* re-report the box after the window is re-attached (app went to background) */
   window.__reportSize=function(){

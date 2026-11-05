@@ -604,6 +604,42 @@ with sync_playwright() as p:
     op.wait_for_timeout(1600)
     chk("and leaves again when the music stops", near(obox(), 130, 38), obox())
 
+    # ---- the native window has to grow before the island does ------------
+    # the island is drawn inside a native window cut to exactly its own size, so
+    # a morph that makes it bigger has to grow that window first or the island is
+    # clipped at the old window's edges for the whole animation. setState did
+    # that; the size sliders went through __setConfig, which only moved the
+    # targets - so dragging Width or Height up on the floating island morphed it
+    # inside a window still sized for the old box and the growing pill was cut
+    # off on all four sides until the springs stopped and the settle resized it
+    chk("the island is idle before the size test", near(obox(), 130, 38), obox())
+    chk("the window starts out the island's size", olast("resize")[1:] == [130, 38], olast("resize"))
+    op.evaluate("window.__setConfig(1.25,1.6,1,0.65)")
+    r = olast("resize")
+    chk("a bigger island grows its window at once, not when the morph ends",
+        r[1] >= 162 and r[2] >= 60, r)
+    op.wait_for_timeout(150)
+    chk("the window is not left at the old size mid-morph", olast("resize")[1] >= 162, olast("resize"))
+    g = settle_box(163, 61)
+    chk("the island really does grow", near(g, 163, 61), g)
+    chk("the window still covers the island it settled at",
+        olast("resize")[1] >= g["w"] and olast("resize")[2] >= g["h"], (olast("resize"), g))
+    op.evaluate("window.__setConfig(1,1,1,0.65)")
+    chk("shrinking does not shrink the window out from under the island",
+        olast("resize")[1] >= 163, olast("resize"))
+    g = settle_box()
+    for _ in range(25):                      # the settle resize lands a beat later
+        if olast("resize")[1:] == [130, 38]:
+            break
+        op.wait_for_timeout(100)
+    chk("and the window follows it down once it has settled",
+        near(g, 130, 38) and olast("resize")[1:] == [130, 38], (g, olast("resize")))
+    op.evaluate("window.__setState('music')")
+    r = olast("resize")
+    chk("a state change still grows the window first", r[1] >= 318 and r[2] >= 128, r)
+    op.evaluate("window.__setState('idle')")
+    op.wait_for_timeout(1700)
+
     op.evaluate("window.__setMax(240)"); op.evaluate("window.__setState('music')"); op.wait_for_timeout(1500)
     chk("overlay honours the max width it is given", obox()["w"] <= 240, obox())
     chk("overlay has no errors", len(oerrs) == 0, oerrs[:3])

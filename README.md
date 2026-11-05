@@ -74,7 +74,24 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (144 checks, all passing).
+reproduced, fixed and covered by `tools/test_app.py` (153 checks, all passing).
+
+### 1.7.14 — optimisation slot 6
+
+1. **The size sliders morphed the floating island inside a window too small for it.** The island is
+   drawn in a native overlay window cut to exactly its own size, so a morph that makes it bigger has
+   to grow that window first or the island is clipped at the old window's edges for the whole
+   animation. `setState` did that; the Width and Height sliders went through `__setConfig`, which only
+   moved the spring targets — so dragging Width or Height up on the floating island animated the pill
+   inside a window still sized for the old box, and the growing island was cut off on all four sides
+   until the springs stopped and the settle finally resized the window, when it jumped to its real
+   size. Both paths now share one `ensureWindow()` that grows the window before the morph starts.
+   Growing it early is invisible — the window is transparent and the island is centred in it — and
+   shrinking is unchanged, so nothing on screen looks any different once the morph lands.
+   `tools/test_app.py` gains 9 checks (144 → 153): a bigger island reports its new box to native
+   immediately instead of at the end of the morph, the window still covers the island it settled at,
+   shrinking still leaves the window alone until the springs stop, and a state change still grows the
+   window first. Four of those nine fail against the old code.
 
 ### 1.7.13 — optimisation slot 5
 
