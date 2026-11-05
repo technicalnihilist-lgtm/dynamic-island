@@ -790,8 +790,18 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
     setSlider('sx', Math.round(S.px));
     setSlider('sy', Math.round(S.py));
   }
+  /* "Reset to default" puts the look and the position back. It used to copy
+     every key of DEFAULTS over the settings, including `on` - the system-wide
+     switch - and nothing told the service or the switch itself, so pressing it
+     with the island floating left three things disagreeing: the stored settings
+     said off, the switch still said On, and the window was still on screen. The
+     disagreement only surfaced on the next `__sysState` - the one that arrives
+     when you come back to the app - which saw "on is false, running is true" and
+     stopped the floating island, so the reset looked like it had killed the
+     island by itself some time later. The switch has its own control, so a reset
+     of the look leaves it exactly where the user put it. */
   $('#btnReset').addEventListener('click', function(){
-    for(var k in DEFAULTS) S[k] = DEFAULTS[k];
+    for(var k in DEFAULTS){ if(k === 'on') continue; S[k] = DEFAULTS[k]; }
     save(); loadSettingsIntoUI(); applyTargets(false); pushConfig(); pushPosition(); pushLock(); syncLockUI();
     spW.v += 30; kick(); haptic('medium');
   });
