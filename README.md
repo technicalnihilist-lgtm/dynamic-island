@@ -76,6 +76,26 @@ Any earlier version installs straight over the top — same signing key.
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
 reproduced, fixed and covered by `tools/test_app.py` (135 checks, all passing).
 
+### 1.7.12 — optimisation slot 1
+
+1. **A WebView that Android killed took the whole app with it, silently.** Both of the app's pages —
+   the control room and the floating island — were built with a bare `WebViewClient`, which answers
+   `onRenderProcessGone` with `false`. On Android 8 and up that is a request to the framework to kill
+   the process, and the renderer is exactly what Android reclaims first when memory runs short. An
+   always-on overlay that holds a WebView for hours over every other app is the most likely thing on
+   the phone to lose it: the island simply vanished, with no crash dialog, no message and no way to
+   tell it had ever been there. Both pages now use one client, `IslandWebClient`, which returns `true`
+   so the death is handled here instead. The floating island throws the dead WebView away and builds
+   a fresh one, carrying its state across so it comes back in the view it was in; if it dies again
+   within ten seconds it stops the service and puts `renderer:gone` in `lastError` rather than
+   rebuild for ever, which the app already knows how to show. The control room rebuilds its page the
+   same way. The same client also reports a main-frame load failure, which used to fire no callback
+   at all — the window came up empty and the app went on saying "Live over your other apps" — so a
+   page that cannot be drawn is now a stated error instead of a blank island. Sub-resource errors are
+   ignored, as they should be. Nothing on screen changed: this is all in the native shell, which
+   `tools/test_app.py` cannot reach, so the suite still passes 135 checks and the change is verified
+   by the full APK build (aapt2, javac, d8, zipalign, apksigner) succeeding.
+
 ### 1.7.11 — optimisation slot 8
 
 1. **The keyboard could not press a single button inside the island.** The island carries its own

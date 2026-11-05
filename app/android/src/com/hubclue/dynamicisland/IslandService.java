@@ -24,6 +24,7 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.View;
@@ -100,6 +101,9 @@ public class IslandService extends Service {
     private static boolean hasPendingLock = false;
     private static IslandService sInstance;
     private boolean attached = false;
+    /* the page died on us and had to be rebuilt; a rebuild loop is not a fix */
+    private long lastRebuildAt = 0;
+    private static final long REBUILD_GAP_MS = 10000L;
 
     private WindowManager wm;
     private WebView web;
@@ -582,6 +586,45 @@ public class IslandService extends Service {
 
     // ---------------------------------------------------------------- overlay
 
+    /**
+     * What to do when the island's page cannot be drawn. Both cases used to be
+     * silent: the window was already on screen, so the app went on reporting a
+     * working island over an empty one - and a renderer that died took the
+     * whole process with it, because the base WebViewClient answers that by
+     * letting the framework kill the app.
+     */
+    private final IslandWebClient.Failure overlayFailure = new IslandWebClient.Failure() {
+        @Override
+        public void onLoadFailed(String reason) {
+            /* the window is up but empty; say so in the app instead of claiming
+               the island is live */
+            lastError = reason;
+        }
+
+        @Override
+        public void onRendererGone() {
+            long now = SystemClock.uptimeMillis();
+            if (now - lastRebuildAt < REBUILD_GAP_MS) {
+                /* it died again straight away: rebuilding for ever would be a
+                   worse answer than stopping with something to show for it */
+                lastError = "renderer:gone";
+                removeOverlay();
+                RUNNING = false;
+                try {
+                    stopSelf();
+                } catch (Throwable ignored) {
+                }
+                return;
+            }
+            lastRebuildAt = now;
+            /* the state survives the page: it is pushed again into the new one
+               as soon as it reports itself ready */
+            if (pendingState == null) pendingState = currentState;
+            removeOverlay();
+            addOverlay();
+        }
+    };
+
     private void addOverlay() {
         try {
             web = new WebView(this);
@@ -597,7 +640,7 @@ public class IslandService extends Service {
             s.setTextZoom(100);
             s.setUseWideViewPort(true);
             s.setLoadWithOverviewMode(false);
-            web.setWebViewClient(new WebViewClient());
+            web.setWebViewClient(IslandWebClient.create(overlayFailure));
             web.addJavascriptInterface(new Bridge(), "Native");
 
             int type = Build.VERSION.SDK_INT >= 26

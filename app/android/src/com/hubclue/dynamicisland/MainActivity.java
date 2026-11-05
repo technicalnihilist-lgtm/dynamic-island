@@ -56,6 +56,22 @@ public class MainActivity extends Activity {
                             | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
         }
 
+        buildWeb();
+
+        askForNotificationPermission();
+    }
+
+    /**
+     * Creates the page and puts it on screen. Kept apart from onCreate because a
+     * WebView whose renderer has died cannot be used again: it has to be thrown
+     * away and a fresh one built in its place, and that is what
+     * {@link IslandWebClient} asks for when Android reclaims the renderer under
+     * memory pressure. Building it here rather than letting the framework kill
+     * the process is the difference between a page that comes back and an app
+     * that vanishes.
+     */
+    @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
+    private void buildWeb() {
         web = new WebView(this);
         web.setBackgroundColor(Color.parseColor("#0C0D12"));
         web.setOverScrollMode(View.OVER_SCROLL_NEVER);
@@ -72,7 +88,7 @@ public class MainActivity extends Activity {
         s.setUseWideViewPort(true);
         s.setLoadWithOverviewMode(false);
 
-        web.setWebViewClient(new WebViewClient());
+        web.setWebViewClient(IslandWebClient.create(pageFailure));
         web.addJavascriptInterface(new Bridge(), "Native");
 
         web.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
@@ -88,9 +104,35 @@ public class MainActivity extends Activity {
 
         setContentView(web);
         web.loadUrl("file:///android_asset/index.html");
-
-        askForNotificationPermission();
     }
+
+    /** the control room's own page cannot be drawn, so build it again */
+    private final IslandWebClient.Failure pageFailure = new IslandWebClient.Failure() {
+        @Override
+        public void onLoadFailed(String reason) {
+            /* the preview is in front of the user and would be blank; reloading
+               once is cheap and usually enough */
+            if (web != null) {
+                try {
+                    web.reload();
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+
+        @Override
+        public void onRendererGone() {
+            if (web != null) {
+                try {
+                    web.destroy();
+                } catch (Throwable ignored) {
+                }
+                web = null;
+            }
+            buildWeb();
+            pushSystemState();
+        }
+    };
 
     private void askForNotificationPermission() {
         try {
