@@ -74,7 +74,24 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (159 checks, all passing).
+reproduced, fixed and covered by `tools/test_app.py` (159 checks, all passing). The 1.7.16 entry is in
+the Android service rather than in the page, so the page suite is untouched by it.
+
+### 1.7.16 — optimisation slot 10
+
+1. **The service kept reading the phone's players while its own window was off screen.** When the
+   app's screen is in front, the floating window is detached — `applyHostVisible` removes it from the
+   window manager, because a hidden overlay window would swallow touches meant for the app beneath
+   it — but the media poll ran on regardless: `getActiveSessions`, a `getPlaybackState` for every
+   session in the list, then `getMetadata` and another `getPlaybackState` for the one it picked. Four
+   to six blocking binder round trips into system_server every 1.5 s for as long as music played,
+   plus an eval into a WebView nobody could see, to keep a picture current that was not on screen.
+   The poll now parks on the lazy cadence while the window is down — it keeps running, so no detach
+   can wedge it — and `applyHostVisible` arms it again the moment the window goes back up, so the
+   island is one read away from the truth when you press Home rather than up to a lazy poll behind
+   it. Nothing on screen changes: the poll only ever fed that window. No new browser checks; the page
+   is untouched and its 159 still pass. That the poll really stops on a device needs a phone and
+   logcat or a system trace — it cannot be asserted from a browser.
 
 ### 1.7.15 — optimisation slot 10
 
@@ -447,32 +464,32 @@ Ten changes, all under the hood. Nothing looks different.
    pending "fade the contents back in", stranding the `.out` class. Swaps are token-guarded now and the
    visible state is always restored.
 39. Turning the island off mid-call left the duration interval and the promote timer running forever,
-    and left `pointer-events` / `aria-hidden` out of sync with the switch.
+   and left `pointer-events` / `aria-hidden` out of sync with the switch.
 40. Play/pause wrote to `content.firstChild` and next/previous searched the island for the first `.t1` —
-    both silently target the wrong node after a re-render. Every lookup is scoped to the current view.
+   both silently target the wrong node after a re-render. Every lookup is scoped to the current view.
 41. The huge wallpaper clock used to bleed through the island text. The clock is now centred in the
-    space *below* the island, and the default island opacity went from 44% to 75%.
+   space *below* the island, and the default island opacity went from 44% to 75%.
 42. White text on the light-blue "active" chip was about 2.2:1 contrast — barely readable. It is dark
-    ink on the accent now, around 7:1.
+   ink on the accent now, around 7:1.
 
 **Things that broke under the hood**
 
 43. The corner-radius target could exceed half the height; the render loop clamped it silently, so the
-    morph snapped at the very end. The target is clamped before it reaches the spring.
+   morph snapped at the very end. The target is clamped before it reaches the spring.
 44. All motion was driven by `requestAnimationFrame` alone. In a backgrounded tab that pauses, leaving
-    the island stranded mid-morph and the contents never faded in. Contents now fade on a timer, and a
-    1.5 s watchdog snaps any spring that has not finished.
+   the island stranded mid-morph and the contents never faded in. Contents now fade on a timer, and a
+   1.5 s watchdog snaps any spring that has not finished.
 45. The clock and date were hardcoded strings ("9:41", "Friday, October 30"). They are live now.
 46. `prefers-reduced-motion` only stopped the wallpaper orbs; the waveform, equaliser and pulse ring
-    kept animating. All of it stops now.
+   kept animating. All of it stops now.
 47. Settings reset on every reload — they persist in `localStorage` now.
 48. The accordion measured `offsetHeight` on every frame and animated `height` in pixels, which broke
-    after a rotation or a font-size change. It is a pure-CSS `max-height` transition now.
+   after a rotation or a font-size change. It is a pure-CSS `max-height` transition now.
 49. The island carried `role="button"` while containing real buttons — nested interactive elements,
-    which screen readers announce badly. The container is a `role="group"`; the controls keep their own
-    roles, labels and `aria-pressed` state, and state changes are announced in a live region.
+   which screen readers announce badly. The container is a `role="group"`; the controls keep their own
+   roles, labels and `aria-pressed` state, and state changes are announced in a live region.
 50. No `theme-color`, no safe-area handling for the notch or the gesture bar, no `touch-action`, so taps
-    were delayed ~300 ms on some devices.
+   were delayed ~300 ms on some devices.
 
 ## Build the APK yourself
 

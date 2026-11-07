@@ -277,6 +277,22 @@ public class IslandService extends Service {
        same preference for the playing one, the same cadence, the same pushes
        into the page, the same backing off when there is nothing to read. */
     private void pollMedia() {
+        /* Nothing on screen to keep up to date. While the app's own screen is
+           in front the floating window is detached - applyHostVisible removes
+           it from the window manager, because a hidden overlay window would
+           swallow touches meant for the app underneath - so the island the
+           poll exists to feed is not there. The read still ran, every 1.5 s
+           for as long as music was playing: four to six binder round trips
+           into system_server plus an eval into a WebView nobody can see, for
+           a picture that cannot be seen either. The loop parks on the lazy
+           cadence instead of stopping - it is always still running, so no
+           detach can wedge it - and applyHostVisible arms it the moment the
+           window goes back up, which is the first moment it matters again. */
+        if (!attached) {
+            mediaPollDelay = LAZY_POLL_MS;
+            scheduleMediaPoll();
+            return;
+        }
         if (!pageReady) {
             scheduleMediaPoll();
             return;
@@ -565,6 +581,11 @@ public class IslandService extends Service {
                         attached = true;
                         driftFixes = 0;
                         eval("window.__reportSize&&window.__reportSize()");
+                        /* the window is up again, so the island is one read
+                           away from the truth: take it now instead of at the
+                           end of the parked lazy cadence */
+                        ui.removeCallbacks(mediaTick);
+                        if (screenOn) ui.postDelayed(mediaTick, 400);
                         ui.postDelayed(new Runnable() {
                             @Override
                             public void run() {
