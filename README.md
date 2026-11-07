@@ -464,32 +464,32 @@ Ten changes, all under the hood. Nothing looks different.
    pending "fade the contents back in", stranding the `.out` class. Swaps are token-guarded now and the
    visible state is always restored.
 39. Turning the island off mid-call left the duration interval and the promote timer running forever,
-   and left `pointer-events` / `aria-hidden` out of sync with the switch.
+    and left `pointer-events` / `aria-hidden` out of sync with the switch.
 40. Play/pause wrote to `content.firstChild` and next/previous searched the island for the first `.t1` —
-   both silently target the wrong node after a re-render. Every lookup is scoped to the current view.
+    both silently target the wrong node after a re-render. Every lookup is scoped to the current view.
 41. The huge wallpaper clock used to bleed through the island text. The clock is now centred in the
-   space *below* the island, and the default island opacity went from 44% to 75%.
+    space *below* the island, and the default island opacity went from 44% to 75%.
 42. White text on the light-blue "active" chip was about 2.2:1 contrast — barely readable. It is dark
-   ink on the accent now, around 7:1.
+    ink on the accent now, around 7:1.
 
 **Things that broke under the hood**
 
 43. The corner-radius target could exceed half the height; the render loop clamped it silently, so the
-   morph snapped at the very end. The target is clamped before it reaches the spring.
+    morph snapped at the very end. The target is clamped before it reaches the spring.
 44. All motion was driven by `requestAnimationFrame` alone. In a backgrounded tab that pauses, leaving
-   the island stranded mid-morph and the contents never faded in. Contents now fade on a timer, and a
-   1.5 s watchdog snaps any spring that has not finished.
+    the island stranded mid-morph and the contents never faded in. Contents now fade on a timer, and a
+    1.5 s watchdog snaps any spring that has not finished.
 45. The clock and date were hardcoded strings ("9:41", "Friday, October 30"). They are live now.
 46. `prefers-reduced-motion` only stopped the wallpaper orbs; the waveform, equaliser and pulse ring
-   kept animating. All of it stops now.
+    kept animating. All of it stops now.
 47. Settings reset on every reload — they persist in `localStorage` now.
 48. The accordion measured `offsetHeight` on every frame and animated `height` in pixels, which broke
-   after a rotation or a font-size change. It is a pure-CSS `max-height` transition now.
+    after a rotation or a font-size change. It is a pure-CSS `max-height` transition now.
 49. The island carried `role="button"` while containing real buttons — nested interactive elements,
-   which screen readers announce badly. The container is a `role="group"`; the controls keep their own
-   roles, labels and `aria-pressed` state, and state changes are announced in a live region.
+    which screen readers announce badly. The container is a `role="group"`; the controls keep their own
+    roles, labels and `aria-pressed` state, and state changes are announced in a live region.
 50. No `theme-color`, no safe-area handling for the notch or the gesture bar, no `touch-action`, so taps
-   were delayed ~300 ms on some devices.
+    were delayed ~300 ms on some devices.
 
 ## Build the APK yourself
 
