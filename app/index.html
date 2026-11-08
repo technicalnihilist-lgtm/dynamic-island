@@ -656,6 +656,20 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
     else { nb.textContent = 'Allow notification access'; nb.disabled = false; }
   }
 
+  /* While the system-wide island is on, the preview is a mirror of it and not
+     a control of its own: it must not take a tab stop and it must not be
+     announced. That was three lines inside setPower, so the only other place
+     the switch can turn over - __sysState, which is how a permission revoked
+     in Android's own settings reaches the page - turned the preview's touches
+     back on and left it tabindex="-1" and aria-hidden="true" for good: live
+     again, switch reading Off, but unreachable by Tab and silent to a screen
+     reader until the app was restarted. One helper, called from both. */
+  function setIslandInteractive(on){
+    island.style.pointerEvents = on ? 'auto' : 'none';
+    island.setAttribute('aria-hidden', on ? 'false' : 'true');
+    island.tabIndex = on ? 0 : -1;
+  }
+
   function setPower(v, silent){
     v = !!v;
     if(v && !sys.canDraw){
@@ -664,9 +678,7 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
     }
     S.on = v; save();
     document.body.classList.toggle('sysmode', v);
-    island.style.pointerEvents = v ? 'none' : 'auto';
-    island.setAttribute('aria-hidden', v ? 'true' : 'false');
-    island.tabIndex = v ? -1 : 0;
+    setIslandInteractive(!v);
     var b = $('#pw');
     b.setAttribute('aria-checked', v ? 'true' : 'false');
     $('#pwLabel').textContent = 'System-wide island: ' + (v ? 'On' : 'Off');
@@ -703,7 +715,7 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
     var b = $('#pw');
     b.setAttribute('aria-checked', S.on ? 'true' : 'false');
     $('#pwLabel').textContent = 'System-wide island: ' + (S.on ? 'On' : 'Off');
-    island.style.pointerEvents = S.on ? 'none' : 'auto';
+    setIslandInteractive(!S.on);
     if(!wasRunning && sys.running){ pushConfig(); pushPosition(); pushLock(); }
     sysHint();
   };

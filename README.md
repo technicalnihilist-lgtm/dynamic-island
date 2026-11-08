@@ -74,8 +74,29 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (169 checks, all passing). The 1.7.16 entry is in
+reproduced, fixed and covered by `tools/test_app.py` (175 checks, all passing). The 1.7.16 entry is in
 the Android service rather than in the page, so the page suite is untouched by it.
+
+### 1.7.19 — optimisation slot 8
+
+1. **Revoking "Display over other apps" left the island unreachable by keyboard and invisible to a screen
+   reader.** While the system-wide island is on, the in-app preview is a mirror of it rather than a
+   control of its own, so it is taken out of the tab order and hidden from accessibility services —
+   three lines inside `setPower`, which is what the switch calls. The other path that can turn the
+   switch over is `__sysState`, the state push that arrives from Android, and it only turned the
+   preview's touches back on. That path is exactly how a permission revoked in Android's own settings
+   reaches the page: the app came back reporting the island off, hinting that it needed the permission,
+   drawing the island live and accepting taps on it — while it still carried `tabindex="-1"` and
+   `aria-hidden="true"` from when the floating island had been on. Tab skipped it, TalkBack never
+   announced it, and only restarting the app put it back. Both paths now go through one
+   `setIslandInteractive()` helper, so they cannot drift apart again. Nothing on screen changes: the
+   three properties are focus order and accessibility metadata, not pixels. `tools/test_app.py` gains 6
+   checks (169 → 175): with the island floating, the preview is off the tab order; revoking the
+   permission turns the switch off and gives the preview back its tab stop, its `aria-hidden` and its
+   place in sequential navigation, walked with real Shift+Tab presses rather than a programmatic
+   `.focus()` — which succeeds even at `tabindex="-1"` and would have proved nothing. Two of the six
+   fail against the old page. What a real TalkBack does with the same DOM needs a device; the page is
+   measured here.
 
 ### 1.7.18 — optimisation slot 7
 

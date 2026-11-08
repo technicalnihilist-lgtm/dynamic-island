@@ -426,6 +426,52 @@ with sync_playwright() as p:
     chk("the keyboard page has no errors", len(kerrs) == 0, kerrs[:3])
     kb.close()
 
+    # ---- a permission revoked outside the app must give the island back ---
+    # While the system-wide island is on, the preview is a mirror and not a
+    # control, so setPower took its tab stop away and hid it from a screen
+    # reader. __sysState only turned its touches off, and that is the one path
+    # that can flip the switch off without going through the switch: the user
+    # revokes "Display over other apps" in Android's own settings and comes
+    # back. The island was then live again - touches on, switch reading Off -
+    # but still tabindex="-1" and aria-hidden="true" for good: unreachable by
+    # Tab and silent to TalkBack until the app was restarted.
+    a11 = b.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=3, color_scheme="dark")
+    a11.add_init_script(MOCK)
+    xp = a11.new_page()
+    xerrs = []
+    xp.on("pageerror", lambda e: xerrs.append(str(e)))
+    xp.goto(URL); xp.wait_for_timeout(900)
+    focus_state = lambda: (xp.eval_on_selector("#island", "e=>e.tabIndex"),
+                           xp.eval_on_selector("#island", "e=>e.getAttribute('aria-hidden')"))
+    xp.evaluate("window.__canDraw = true; window.__sysState(true, false, false, '')")
+    xp.wait_for_timeout(200)
+    xp.click("#pw"); xp.wait_for_timeout(600)
+    chk("the switch turns the floating island on for the focus test",
+        "On" in xp.eval_on_selector("#pwLabel", "e=>e.textContent"))
+    chk("a mirrored preview is not a tab stop while the island floats",
+        focus_state() == (-1, "true"), focus_state())
+    xp.evaluate("window.__canDraw = false; window.__sysState(false, false, false, '')")
+    xp.wait_for_timeout(300)
+    chk("revoking the permission turns the switch off",
+        "Off" in xp.eval_on_selector("#pwLabel", "e=>e.textContent"))
+    chk("and hands the preview back to the keyboard",
+        focus_state() == (0, "false"), focus_state())
+    # the island is the first focusable thing in the document, so walking
+    # backwards from the permission button must reach it. A programmatic
+    # .focus() still works at tabindex="-1" and would prove nothing; sequential
+    # navigation is what skips it, and that is what a keyboard user relies on.
+    xp.evaluate("document.getElementById('btnPerm').focus()")
+    reached = False
+    for _ in range(12):
+        xp.keyboard.press("Shift+Tab")
+        if xp.evaluate("document.activeElement && document.activeElement.id") == "island":
+            reached = True
+            break
+    chk("the keyboard reaches the island again",
+        reached, xp.evaluate("document.activeElement && (document.activeElement.id || document.activeElement.tagName)"))
+    chk("the focus page has no errors", len(xerrs) == 0, xerrs[:3])
+    a11.close()
+
     # ---- the wallpaper clock ---------------------------------------------
     # it used to wake every second to redraw something that only changes once a
     # minute, and to reformat the date string on every one of those wakeups
