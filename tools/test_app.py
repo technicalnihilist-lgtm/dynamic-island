@@ -80,6 +80,36 @@ VIEWPORT_FAKE = """
 })();
 """
 
+RAF_FAKE = """
+(function(){
+  /* a hand-driven requestAnimationFrame: the test decides when a frame happens
+     and how much later it is, so a slow phone can be reproduced exactly
+     instead of hoped for */
+  var q = [], id = 0, ts = 0;
+  window.requestAnimationFrame = function(cb){ q.push(cb); return ++id; };
+  window.cancelAnimationFrame = function(){};
+  window.__rafPending = function(){ return q.length; };
+  window.__rafRun = function(ms, n){
+    var ran = 0;
+    while(ran < n){
+      if(!q.length) break;
+      var batch = q; q = []; ts += ms;
+      for(var i=0;i<batch.length;i++) batch[i](ts);
+      ran++;
+    }
+    return ran;
+  };
+  /* the island's width after `ms` of frames of length `step`: at the same
+     instant in wall-clock time it must not matter how often frames arrive */
+  window.__widthAfter = function(step, ms){
+    window.__rafRun(step, 1);   /* the first frame after a kick is a default 16.7 ms */
+    var t = 0;
+    while(t < ms){ window.__rafRun(step, 1); t += step; }
+    return parseFloat(document.getElementById('island').style.width);
+  };
+})();
+"""
+
 STAGE_FAKE = """
 (function(){
   /* counts every read of the stage's box, the way a forced layout is asked for */
@@ -820,6 +850,55 @@ with sync_playwright() as p:
         abs(g4["ib"] - want4) < 6 and g4["iw"] <= 320, (g4, round(want4)))
     chk("the position page has no errors", len(qerrs) == 0, qerrs[:3])
     pos2.close()
+
+    # ---- the morph must take the same time at any frame rate --------------
+    # the render loop clamped each frame to 32 ms and integrated that, so a
+    # device delivering a frame every 100 ms ran every morph at a third of its
+    # speed: the island crept to its new size over a second and a half instead
+    # of a fifth of one, and the overshoot it is tuned for came out as a slow
+    # wobble that was still visibly moving long after the tap. Time is banked
+    # now and spent in fixed 1/240 s steps, so the frame rate changes how
+    # smooth the morph looks, not how long it takes.
+    fast = b.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=3, color_scheme="dark")
+    fast.add_init_script(MOCK)
+    fast.add_init_script(RAF_FAKE)
+    fp = fast.new_page()
+    ferrs = []
+    fp.on("pageerror", lambda e: ferrs.append(str(e)))
+    fp.goto(URL); fp.wait_for_timeout(300)
+
+    MORPH = """function(step){
+        var idle = arguments[1] || "idle";
+        (window.__di ? window.__di.setState : window.__setState)(idle);
+        window.__rafRun(16.7, 900);          /* settle at the idle size first */
+        var from = parseFloat(document.getElementById('island').style.width);
+        (window.__di ? window.__di.setState : window.__setState)('music');
+        return { from: from, mid: window.__widthAfter(step, 300),
+                 end: window.__widthAfter(step, 1200) };
+      }"""
+    m60 = fp.evaluate(MORPH, 16.7)     # a phone that keeps up
+    m10 = fp.evaluate(MORPH, 100)      # a throttled WebView: a frame every tenth of a second
+    chk("the island starts the morph test at the idle size",
+        abs(m60["from"] - 130) <= 1 and abs(m10["from"] - 130) <= 1, (m60, m10))
+    chk("a slow frame rate does not stretch the morph",
+        abs(m60["mid"] - m10["mid"]) <= 4, (m60, m10))
+    chk("the morph lands on its size either way",
+        abs(m60["end"] - 318) <= 1 and abs(m10["end"] - 318) <= 1, (m60, m10))
+
+    # the floating island's page runs the same loop in a window Android
+    # throttles even harder than an app
+    ofp = fast.new_page()
+    oferrs = []
+    ofp.on("pageerror", lambda e: oferrs.append(str(e)))
+    ofp.goto(OVERLAY_URL); ofp.wait_for_timeout(300)
+    o60 = ofp.evaluate(MORPH, 16.7)
+    o10 = ofp.evaluate(MORPH, 100)
+    chk("a throttled floating island morphs as fast as a smooth one",
+        abs(o60["mid"] - o10["mid"]) <= 4, (o60, o10))
+    chk("the floating island morph lands on its size either way",
+        abs(o60["end"] - 318) <= 1 and abs(o10["end"] - 318) <= 1, (o60, o10))
+    chk("the frame-rate page has no errors", len(ferrs) == 0 and len(oferrs) == 0, (ferrs[:3], oferrs[:3]))
+    fast.close()
 
     b.close()
 

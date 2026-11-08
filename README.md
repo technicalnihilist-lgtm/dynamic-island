@@ -74,8 +74,26 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (163 checks, all passing). The 1.7.16 entry is in
+reproduced, fixed and covered by `tools/test_app.py` (169 checks, all passing). The 1.7.16 entry is in
 the Android service rather than in the page, so the page suite is untouched by it.
+
+### 1.7.18 — optimisation slot 7
+
+1. **Every morph ran at the speed of the frame rate, not at its own speed.** The render loop in both
+   pages took the time since the last frame, clamped it to 32 ms and integrated that, so a device
+   delivering a frame every 60 ms — a busy phone, a WebView Android has throttled, and above all the
+   floating island's own overlay window, which is throttled harder than any app — ran every morph at
+   about half speed. The island crept to its new size over a second and a half, and the overshoot it
+   is tuned for arrived as a slow wobble still visibly moving long after the tap; at 100 ms a frame it
+   was a third of the way to its target 1.2 s later and had not arrived at all. Time is banked now and
+   spent in fixed 1/240 s steps, so the frame rate decides how smooth a morph looks and no longer how
+   long it takes. At 60 fps that is the same four 1/240 s steps it always ran, so nothing moves that
+   did not move before; the bank is capped at 200 ms so a page frozen behind another app cannot come
+   back and spin the loop for thousands of steps in one frame. `tools/test_app.py` gains 6 checks
+   (163 → 169) driving `requestAnimationFrame` by hand at 16.7 ms and at 100 ms a frame: the island is
+   the same width 300 ms into the morph either way, lands on its size either way, and the floating
+   page does the same. Against the old code the two are 86 px apart mid-morph. That a real phone
+   throttles the way the test says needs a device and a trace; the page is measured here.
 
 ### 1.7.17 — optimisation slot 3
 

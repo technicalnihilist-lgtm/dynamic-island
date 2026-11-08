@@ -317,13 +317,11 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
 
   /* ============ springs ============ */
   function Spring(v){ this.x=v; this.v=0; this.t=v; }
+  /* one fixed integration step; how many of them a frame is worth is decided
+     by the loop below, not by the frame */
   Spring.prototype.step = function(dt,k,c){
-    var n = 4, h = dt/n;
-    for(var i=0;i<n;i++){
-      var a = -k*(this.x-this.t) - c*this.v;
-      this.v += a*h; this.x += this.v*h;
-    }
-    return Math.abs(this.x-this.t) > .05 || Math.abs(this.v) > .05;
+    var a = -k*(this.x-this.t) - c*this.v;
+    this.v += a*dt; this.x += this.v*dt;
   };
   var spW = new Spring(BASE.idle.w), spH = new Spring(BASE.idle.h),
       spR = new Spring(16),            spS = new Spring(1);
@@ -339,7 +337,27 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
     DAMP.s = 2*clamp(z+.1,.2,1)*Math.sqrt(210);
   }
 
-  var raf = null, lastT = 0;
+  /* Frames do not arrive sixty times a second on a phone: a busy device, a
+     WebView Android has throttled, or this app's own window sitting behind
+     another one all deliver them late and unevenly. The loop used to clamp
+     each frame to 32 ms and integrate that, so a device delivering a frame
+     every 60 ms ran every morph at about half speed - the island crawled to
+     its new size, and the overshoot it is tuned for came out as a slow wobble
+     still visibly moving a second after the tap. The step is fixed now and
+     time is banked instead: each frame feeds the real elapsed time into an
+     accumulator and runs as many 1/240 s steps as it owes, so the frame rate
+     decides how smooth the morph looks, not how long it takes. At 60 fps that
+     is the same four 1/240 s steps it always ran, so nothing moves that did
+     not move before. The bank is capped so a page frozen for a minute cannot
+     come back and spin the loop for thousands of steps in one frame. */
+  var STEP = 1/240, MAX_STEPS = 48;      /* at most 200 ms of catch-up per frame */
+  var raf = null, lastT = 0, bank = 0;
+  function unsettled(){
+    return Math.abs(spW.x-spW.t) > .05 || Math.abs(spW.v) > .05 ||
+           Math.abs(spH.x-spH.t) > .05 || Math.abs(spH.v) > .05 ||
+           Math.abs(spR.x-spR.t) > .05 || Math.abs(spR.v) > .05 ||
+           Math.abs(spS.x-spS.t) > .05 || Math.abs(spS.v) > .05;
+  }
   var shown = { w:'', h:'', r:'', t:'', o:'' };
   function paint(){
     var vw = viewportW();
@@ -358,16 +376,24 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   }
   function frame(now){
     raf = null;
-    var dt = lastT ? Math.min(.032, (now-lastT)/1000) : .016;
+    var dt = lastT ? (now - lastT)/1000 : STEP*4;
     lastT = now;
-    var moving = false;
-    if(spW.step(dt, 175, DAMP.w)) moving = true;
-    if(spH.step(dt, 235, DAMP.h)) moving = true;
-    if(spR.step(dt, 175, DAMP.r)) moving = true;
-    if(spS.step(dt, 210, DAMP.s)) moving = true;
+    if(!(dt > 0)) dt = STEP*4;           /* a timestamp that went backwards */
+    bank += dt;
+    var n = 0;
+    while(bank >= STEP && n < MAX_STEPS){
+      spW.step(STEP, 175, DAMP.w);
+      spH.step(STEP, 235, DAMP.h);
+      spR.step(STEP, 175, DAMP.r);
+      spS.step(STEP, 210, DAMP.s);
+      bank -= STEP; n++;
+    }
+    /* the backlog was too long to be worth chasing: drop it rather than let
+       the loop spend every frame it gets trying to catch up with the past */
+    if(n === MAX_STEPS) bank = 0;
     paint();
-    if(moving) raf = requestAnimationFrame(frame);
-    else { lastT = 0; applyPos(); }
+    if(unsettled()) raf = requestAnimationFrame(frame);
+    else { lastT = 0; bank = 0; applyPos(); }
   }
   function kick(){
     if(raf === null){ lastT = 0; raf = requestAnimationFrame(frame); }
@@ -379,7 +405,7 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
     spW.x = spW.t; spH.x = spH.t; spR.x = spR.t; spS.x = spS.t;
     spW.v = spH.v = spR.v = spS.v = 0;
     if(raf !== null){ cancelAnimationFrame(raf); raf = null; }
-    lastT = 0; paint(); applyPos();
+    lastT = 0; bank = 0; paint(); applyPos();
   }
   function armSettle(){
     if(settleT) clearTimeout(settleT);

@@ -85,10 +85,9 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
 
   /* ---- springs ---- */
   function Spring(v){ this.x=v; this.v=0; this.t=v; }
+  /* one fixed integration step; the loop below decides how many a frame owes */
   Spring.prototype.step=function(dt,k,c){
-    var n=4, h=dt/n;
-    for(var i=0;i<n;i++){ var a=-k*(this.x-this.t)-c*this.v; this.v+=a*h; this.x+=this.v*h; }
-    return Math.abs(this.x-this.t)>.05||Math.abs(this.v)>.05;
+    var a=-k*(this.x-this.t)-c*this.v; this.v+=a*dt; this.x+=this.v*dt;
   };
   var spW=new Spring(130), spH=new Spring(38), spR=new Spring(19);
   var DAMP={w:0,h:0,r:0};
@@ -99,7 +98,24 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     DAMP.r=2*z*Math.sqrt(175);
   }
 
-  var raf=null, lastT=0, settleT=null, settledW=130, settledH=38;
+  /* This page lives in a system overlay window, and Android throttles frames
+     for a window it does not consider foreground far harder than it does for
+     an app - frames arrive late and in clumps, not sixty a second. The loop
+     used to clamp each frame to 32 ms and integrate that, so a morph ran at
+     whatever speed the frames happened to arrive: the island crept between
+     sizes, and on a throttled window it was still wobbling well after the tap
+     that started it. The step is fixed and time is banked instead, so the
+     frame rate decides how smooth the morph looks, not how long it takes. At
+     60 fps this is the same four 1/240 s steps it always ran. The bank is
+     capped so a window frozen while the screen was off cannot come back and
+     spin the loop for thousands of steps at once. */
+  var STEP=1/240, MAX_STEPS=48;          /* at most 200 ms of catch-up per frame */
+  var raf=null, lastT=0, bank=0, settleT=null, settledW=130, settledH=38;
+  function unsettled(){
+    return Math.abs(spW.x-spW.t)>.05||Math.abs(spW.v)>.05||
+           Math.abs(spH.x-spH.t)>.05||Math.abs(spH.v)>.05||
+           Math.abs(spR.x-spR.t)>.05||Math.abs(spR.v)>.05;
+  }
   var shown={w:'',h:'',r:''};
   function paint(){
     var w=clamp(spW.x,20,maxW), h=clamp(spH.x,14,240), r=clamp(spR.x,6,h/2);
@@ -110,13 +126,20 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
   }
   function frame(now){
     raf=null;
-    var dt=lastT?Math.min(.032,(now-lastT)/1000):.016; lastT=now;
-    var moving=false;
-    if(spW.step(dt,175,DAMP.w)) moving=true;
-    if(spH.step(dt,235,DAMP.h)) moving=true;
-    if(spR.step(dt,175,DAMP.r)) moving=true;
+    var dt=lastT?(now-lastT)/1000:STEP*4; lastT=now;
+    if(!(dt>0)) dt=STEP*4;               /* a timestamp that went backwards */
+    bank+=dt;
+    var n=0;
+    while(bank>=STEP && n<MAX_STEPS){
+      spW.step(STEP,175,DAMP.w);
+      spH.step(STEP,235,DAMP.h);
+      spR.step(STEP,175,DAMP.r);
+      bank-=STEP; n++;
+    }
+    /* too much backlog to be worth chasing: drop it, do not fall behind for ever */
+    if(n===MAX_STEPS) bank=0;
     paint();
-    if(moving){ raf=requestAnimationFrame(frame); }
+    if(unsettled()){ raf=requestAnimationFrame(frame); }
     else {
       lastT=0;
       /* shrink the native window down to the island once it has stopped */
@@ -132,7 +155,7 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     spW.x=spW.t; spH.x=spH.t; spR.x=spR.t;
     spW.v=spH.v=spR.v=0;
     if(raf!==null){ cancelAnimationFrame(raf); raf=null; }
-    lastT=0; paint();
+    lastT=0; bank=0; paint();
     var w=Math.round(spW.x), h=Math.round(spH.x);
     if(w!==settledW||h!==settledH){ settledW=w; settledH=h; resize(w,h); }
   }
