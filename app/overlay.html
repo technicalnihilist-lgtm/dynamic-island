@@ -351,6 +351,18 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
      waits for idle - the next poll brings it back the moment the call ends or
      the notification dismisses. */
   var OWNS_ISLAND = { incoming:1, ongoing:1, calling:1, notif:1 };
+  /* A call outranks everything else, and a notification used to be the one
+     thing that outranked a call. A message that arrived while the phone was
+     ringing took the island from it: the green and red buttons vanished
+     mid-ring, and when the notification's seven seconds were up the island
+     collapsed to idle and the call was gone for good - the buttons only come
+     back if the phone announces the call a second time, which it does not.
+     The same thing happened to a call already in progress: its timer view was
+     replaced and then dropped, while the call itself went on. The player
+     already waits its turn behind a call; a notification waits now too, and
+     it is not lost by waiting - it is in the shade, which is where it was
+     anyway, and this island never claimed to replace it. */
+  var CALL_OWNS_ISLAND = { incoming:1, ongoing:1, calling:1 };
 
   window.__music=function(title,artist,isPlaying){
     var changed = (title!==musicData.title) || (artist!==musicData.artist);
@@ -384,6 +396,7 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     if(musicData.real){ musicData.real=false; if(state==='music') setState('idle'); }
   };
   window.__notify=function(app,title,text){
+    if(CALL_OWNS_ISLAND[state]) return;   /* a call owns the island until it ends */
     notifData=[app||'',title||'',text||''];
     setState('notif', true);
   };

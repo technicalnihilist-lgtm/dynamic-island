@@ -640,7 +640,30 @@ with sync_playwright() as p:
     chk("the answer buttons are still there while it rings",
         op.eval_on_selector_all("#content .btn.green", "els=>els.length") == 1
         and op.eval_on_selector_all("#content .btn.red", "els=>els.length") == 1)
+    # a notification used to be the one thing that outranked a call: it took the
+    # island from the ringing call, and when its seven seconds were up the island
+    # went idle with the call still ringing and no way left to answer it from
+    # the island - the phone does not announce the same call twice
+    op.evaluate("window.__notify('Messages','Maya Chen','See you at 8')")
+    op.wait_for_timeout(1400)
+    chk("a notification does not take the island from a ringing call",
+        near(obox(), 312, 88) and "Ravi" in otext(), (obox(), otext()))
+    chk("the answer buttons survive a notification",
+        op.eval_on_selector_all("#content .btn.green", "els=>els.length") == 1
+        and op.eval_on_selector_all("#content .btn.red", "els=>els.length") == 1)
+    op.wait_for_timeout(6200)
+    g = settle_box(312, 88)
+    chk("the call outlives the notification's seven seconds",
+        near(g, 312, 88) and "Ravi" in otext(), (g, otext()))
     op.evaluate("window.__callEnd()")
+    op.wait_for_timeout(1500)
+    # held back only while a call owns the island: a notification after the call
+    # still opens the island exactly as it always did
+    op.evaluate("window.__notify('Messages','Maya Chen','See you at 8')")
+    op.wait_for_timeout(1400)
+    chk("a notification still shows once the call is over",
+        near(obox(), 318, 94) and "Maya Chen" in otext(), (obox(), otext()))
+    op.evaluate("window.__setState('idle')")      # what its seven seconds would do
     op.wait_for_timeout(1500)
     op.evaluate("window.__music('Kesariya','Arijit Singh',true)")
     op.wait_for_timeout(1500)

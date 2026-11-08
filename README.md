@@ -74,8 +74,27 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (159 checks, all passing). The 1.7.16 entry is in
+reproduced, fixed and covered by `tools/test_app.py` (163 checks, all passing). The 1.7.16 entry is in
 the Android service rather than in the page, so the page suite is untouched by it.
+
+### 1.7.17 — optimisation slot 3
+
+1. **A notification arriving during a call took the island off the call for good.** The island has one
+   slot and three things want it, and the order was wrong: a message that landed while the phone was
+   ringing replaced the incoming-call view, so the green and red buttons disappeared mid-ring, and
+   when the notification's seven seconds were up the island collapsed to idle — with the phone still
+   ringing and no way left to answer it from the island, because the phone announces a call once and
+   not again. A call already in progress lost its view the same way: its timer was replaced by the
+   message and then dropped to idle while the call itself went on. The player has always waited its
+   turn behind a call; a notification waits now too, and nothing is lost by waiting — the message is
+   in the notification shade, which is where it was anyway, and this island never claimed to replace
+   it. A ringing call is the one thing on the island you can act on, and it is the one thing that was
+   being taken away. Nothing on screen changed: every state draws exactly what it drew before, and a
+   notification in any other state still opens the island, still replaces an older one and still gets
+   its full seven seconds. `tools/test_app.py` gains 4 checks (159 → 163): a notification sent while
+   a call is ringing leaves the caller's name, the size and both buttons in place, the call is still
+   there after the notification's seven seconds would have expired, and a notification arriving once
+   the call is over still opens the island as before. The first three fail against the old code.
 
 ### 1.7.16 — optimisation slot 10
 
