@@ -812,9 +812,23 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
       requestAnimationFrame(flush);
     }
     el.addEventListener('input', go);
-    /* finger up: the throttled push is flushed at once, so the last value of a
-       drag is never left waiting on a timer */
-    el.addEventListener('change', function(){ save(); pushConfig(); if(posPushT !== null) pushPosition(); haptic('light'); });
+    /* Finger up: the throttled push is flushed at once, so the last value of a
+       drag is never left waiting on a timer. The value is applied here before
+       anything reads it, because a click on the track and every arrow key on a
+       slider deliver `input` and `change` in the same task, with no frame
+       between them - the queued flush had not run yet, so save() stored the
+       previous number and pushConfig() configured the floating island with it.
+       A drag hid this (its input events are spread over frames, so the value
+       was always applied before the finger came up); a click or a keyboard
+       arrow silently kept the old setting, and the two islands disagreed until
+       the next launch. flush() is idempotent - a frame still in the queue finds
+       v === lastV and does nothing. */
+    el.addEventListener('change', function(){
+      flush();
+      save(); pushConfig();
+      if(posPushT !== null) pushPosition();
+      haptic('light');
+    });
     return { el: el, go: function(){ flush(); } };
   }
   var sliders = {};

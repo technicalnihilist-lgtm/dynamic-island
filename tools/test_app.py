@@ -217,6 +217,53 @@ with sync_playwright() as p:
     pg.wait_for_timeout(400)
     chk("sliders push config to the overlay", "setOverlayConfig" in calls())
 
+    # ---- a click or an arrow key on a slider must actually stick -----------
+    # A click on a range track, and every arrow key on one, delivers `input`
+    # and `change` in the same task with no animation frame between them. The
+    # change handler saved the settings and configured the floating island
+    # before the queued frame had applied the new value, so it stored the
+    # PREVIOUS number and pushed that to the service: the preview grew, the
+    # saved setting did not, and the floating island kept the old size until
+    # the next launch. A drag hid it - its input events are spread over frames,
+    # so the value was always applied before the finger came up.
+    def set_same_task(sel, val):
+        pg.eval_on_selector(sel, "(e,v)=>{e.value=String(v);"
+                                 "e.dispatchEvent(new Event('input',{bubbles:true}));"
+                                 "e.dispatchEvent(new Event('change',{bubbles:true}))}", val)
+    saved = lambda k: pg.evaluate("JSON.parse(localStorage.getItem('di.settings'))['%s']" % k)
+
+    set_same_task("#sw", 100); pg.wait_for_timeout(300)
+    set_same_task("#sw", 118); pg.wait_for_timeout(400)
+    chk("a click on a size slider stores what it shows", abs(saved("wm") - 1.18) < 0.001, saved("wm"))
+    cfg = last("setOverlayConfig")
+    chk("a click on a size slider configures the floating island with the new size",
+        cfg is not None and abs(cfg[1] - 1.18) < 0.001, cfg)
+
+    set_same_task("#sw", 100); pg.wait_for_timeout(300)
+    pg.focus("#sw")
+    pg.keyboard.press("ArrowRight"); pg.wait_for_timeout(400)
+    chk("an arrow key on a slider stores what it shows",
+        pg.eval_on_selector("#sw", "e=>e.value") == "101" and abs(saved("wm") - 1.01) < 0.001,
+        (pg.eval_on_selector("#sw", "e=>e.value"), saved("wm")))
+
+    set_same_task("#sx", 50); pg.wait_for_timeout(300)
+    set_same_task("#sx", 72); pg.wait_for_timeout(400)
+    chk("a click on a position slider stores the new position", abs(saved("px") - 72) < 0.001, saved("px"))
+    pos = last("setOverlayPosition")
+    chk("a click on a position slider sends the new position to the floating island",
+        pos is not None and abs(pos[1] - 72) < 0.001, pos)
+
+    # a drag must still end up stored - the fix must not have moved the problem
+    set_same_task("#sw", 100); pg.wait_for_timeout(300)
+    sbox = pg.eval_on_selector("#sw", "e=>{const r=e.getBoundingClientRect();return{x:r.x,y:r.y,w:r.width,h:r.height}}")
+    pg.mouse.move(sbox["x"] + sbox["w"] * 0.2, sbox["y"] + sbox["h"] / 2); pg.mouse.down()
+    for f in (0.3, 0.45, 0.6):
+        pg.mouse.move(sbox["x"] + sbox["w"] * f, sbox["y"] + sbox["h"] / 2); pg.wait_for_timeout(40)
+    pg.mouse.up(); pg.wait_for_timeout(400)
+    chk("dragging a slider still stores where it ended",
+        abs(saved("wm") - pg.eval_on_selector("#sw", "e=>+e.value") / 100) < 0.001,
+        (pg.eval_on_selector("#sw", "e=>e.value"), saved("wm")))
+
     pg.click("#pw"); pg.wait_for_timeout(700)
     chk("switch turns off", "Off" in pg.eval_on_selector("#pwLabel", "e=>e.textContent"))
     chk("overlay service stopped", "stopOverlay" in calls())

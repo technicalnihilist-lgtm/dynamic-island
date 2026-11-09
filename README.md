@@ -74,8 +74,28 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (175 checks, all passing). The 1.7.16 entry is in
+reproduced, fixed and covered by `tools/test_app.py` (181 checks, all passing). The 1.7.16 entry is in
 the Android service rather than in the page, so the page suite is untouched by it.
+
+### 1.7.20 — optimisation slot 1
+
+1. **Clicking a slider, or nudging it with an arrow key, changed the island but never saved the
+   setting.** A click on a range track and every arrow key on one deliver `input` and `change` in the
+   same task, with no animation frame between them. The `change` handler saved the settings and pushed
+   them to the service straight away, while the value itself was still sitting in a queued frame — so
+   it stored the *previous* number and configured the floating island with that one. The preview grew
+   to the size the slider showed, the saved setting did not, and the floating island kept the old size;
+   the two disagreed until the app was restarted, at which point the look silently reverted. Only a
+   drag behaved, and only because its `input` events are spread across frames, so the value always
+   happened to be applied before the finger came up. The handler now applies the pending value before
+   it saves or pushes it; `flush()` is idempotent, so a frame still in the queue finds the value
+   already applied and does nothing. Nothing on screen changes — the same value reaches the same
+   springs, a frame earlier at most. `tools/test_app.py` gains 6 checks (175 → 181): a click-style
+   change to the width slider is stored as `1.18` and pushed to the service as `1.18` instead of `1`,
+   a real ArrowRight press is stored as `1.01`, a click on the position slider is stored and sent, and
+   a drag still stores where it ended. Five of the six fail against the old page; the sixth (the
+   position push) already passed, because that slider's trailing 80 ms send repaired itself — only its
+   persistence was broken.
 
 ### 1.7.19 — optimisation slot 8
 
