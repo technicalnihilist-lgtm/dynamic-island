@@ -209,9 +209,31 @@ public class IslandService extends Service {
         if (s != null) s.pushNotification(app, title, text);
     }
 
+    /* The look the page last asked for. It is kept here as well as in the page,
+       because the page is not always there to keep it: it is built from scratch
+       when Android kills its renderer (see overlayFailure), and on a cold start
+       it takes a moment to load. applyConfig used to hand the four numbers
+       straight to the WebView and return - and it returned early, throwing them
+       away, whenever the page had not reported itself ready yet. The page's own
+       pushConfig fires 700 ms after the switch goes on, which on a slow phone is
+       before the page has finished loading: the floating island then ran at the
+       page's defaults - 100% width and height, its own bounce - for the rest of
+       the session, while the preview showed the size the user had set, and only
+       touching a slider again put the two back together. Every other thing the
+       service pushes into that page (the state, a call, a notification) already
+       survives a page that is not ready and is replayed the moment it says it
+       is; the look was the one that did not. */
+    private static float cfgWm = 1f, cfgHm = 1f, cfgRm = 1f, cfgBounce = 0.65f;
+    private static boolean hasConfig = false;
+
     public static void config(float wm_, float hm_, float rm_, float bounce) {
+        cfgWm = wm_;
+        cfgHm = hm_;
+        cfgRm = rm_;
+        cfgBounce = bounce;
+        hasConfig = true;
         IslandService s = sInstance;
-        if (s != null) s.applyConfig(wm_, hm_, rm_, bounce);
+        if (s != null) s.applyConfig();
     }
 
     /**
@@ -774,9 +796,10 @@ public class IslandService extends Service {
         pendingNotif = null;
     }
 
-    private void applyConfig(float wm_, float hm_, float rm_, float bounce) {
-        if (!pageReady) return;
-        eval("window.__setConfig&&window.__setConfig(" + wm_ + "," + hm_ + "," + rm_ + "," + bounce + ")");
+    private void applyConfig() {
+        if (!pageReady || !hasConfig) return;
+        eval("window.__setConfig&&window.__setConfig("
+                + cfgWm + "," + cfgHm + "," + cfgRm + "," + cfgBounce + ")");
     }
 
     private void eval(final String code) {
@@ -803,6 +826,8 @@ public class IslandService extends Service {
                 public void run() {
                     pageReady = true;
                     eval("window.__setMax&&window.__setMax(" + maxWidthDp() + ")");
+                    /* the look the page was last given, in case it never got it */
+                    applyConfig();
                     if (pendingState != null) applyState(pendingState);
                     if (pendingCall != null) {
                         eval("window.__call&&window.__call("

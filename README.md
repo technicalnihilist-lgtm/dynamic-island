@@ -77,6 +77,27 @@ The original mockup looked right in a screenshot but misbehaved when you used it
 reproduced, fixed and covered by `tools/test_app.py` (190 checks, all passing). The 1.7.16 entry is in
 the Android service rather than in the page, so the page suite is untouched by it.
 
+### 1.7.22 — optimisation slot 6
+
+1. **The floating island threw away the look you set whenever its page was not ready to hear it.**
+   `applyConfig` handed the four numbers — width, height, corner, bounce — straight into the WebView
+   and returned early, dropping them on the floor, if the page had not yet called `ready()`. The page
+   pushes that configuration 700 ms after the switch goes on, which is a guess: on a cold start, on a
+   slow phone, or on a device whose WebView takes a second to come up, the push lands first and the
+   numbers are gone. The page then booted with its own defaults, reported its size, and the island ran
+   at 100% width and height for the rest of the session while the preview in the app showed the size
+   that had been set — the two disagreed until a slider was touched again, and the setting was never
+   the cause. The same hole opened whenever the renderer was killed and rebuilt, which the service
+   already handles for every other thing it pushes: the state, an incoming call and a notification are
+   all held in a pending field and replayed the moment the new page says it is ready, and the look was
+   the one that was not. It is held now too, and replayed with the rest. Nothing on screen changes
+   where the page was already ready in time, which is every launch that worked before: the same four
+   numbers reach the same four sliders. No new browser checks — the page is untouched and its 190 still
+   pass. That a cold start really outruns the 700 ms push needs a device and logcat; it cannot be
+   asserted from a browser, and the JDK/SDK download this sandbox needs to compile the service came
+   back as a 504 from the proxy, so the change was checked by parser and by review rather than by
+   `javac`.
+
 ### 1.7.21 — optimisation slot 2
 
 1. **Reopening the app quietly switched the system-wide island off — and stopped it if it was
