@@ -74,8 +74,33 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (181 checks, all passing). The 1.7.16 entry is in
+reproduced, fixed and covered by `tools/test_app.py` (190 checks, all passing). The 1.7.16 entry is in
 the Android service rather than in the page, so the page suite is untouched by it.
+
+### 1.7.21 — optimisation slot 2
+
+1. **Reopening the app quietly switched the system-wide island off — and stopped it if it was
+   running.** The page starts life with `sys = { canDraw:false, running:false, … }` and boot called
+   `setPower(!!S.on, true)` before Android had been asked anything at all. With the switch stored as
+   On, that call met `sys.canDraw === false`, decided the permission had been refused, set `S.on` to
+   false *and saved it*, and turned the switch over. The `__sysState` push that arrives from
+   `MainActivity.onResume` a moment later then found the exact disagreement its own logic is written
+   to repair — "the stored setting says off, but the window is up" — and called `stopOverlay()`. So
+   using the island, pressing Back and reopening the app killed the floating island, and the switch
+   read Off from then on: the setting was gone for good, because the page's own `S.on` is the only
+   record of it. The bridge already answers all three questions synchronously
+   (`canDrawOverlays`, `overlayRunning`, `hasNotifAccess`) and the page never called any of them, so
+   boot now reads them into `sys` before it decides anything. Where the answers agree with the old
+   defaults — the first launch, and every launch with no permission — nothing changes; where they
+   disagree, the switch now shows what is actually true, an island that survived the relaunch is
+   left running instead of being stopped, and one that was killed with the process (a reboot, an OEM
+   task cleaner) is started again, which is what `__sysState` was already trying to do. Nothing on
+   screen changes: the same switch, the same hint, the same wording, driven by the real state instead
+   of a default. `tools/test_app.py` gains 9 checks (181 → 190): with the switch stored as On and the
+   island already up, boot asks the bridge, shows On, calls neither `startOverlay` nor `stopOverlay`
+   and leaves the stored setting alone; the state push that follows keeps it running; with nothing
+   running, the same stored On starts it again; and with the permission genuinely revoked it is
+   still turned off and saved. Five of the nine fail against the old page.
 
 ### 1.7.20 — optimisation slot 1
 

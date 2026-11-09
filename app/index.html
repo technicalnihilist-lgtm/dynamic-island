@@ -598,6 +598,24 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
 
   /* ============ system-wide overlay ============ */
   var sys = { canDraw:false, running:false, notif:false, err:'' };
+  /* The page used to start from the assumption that it had no permission and
+     that nothing was running, and it made its first decision about the switch
+     from that assumption: boot calls setPower(!!S.on, true) before Android has
+     said anything, so a stored On met sys.canDraw === false and was turned
+     off and saved. The __sysState that arrives a moment later then found “off,
+     but the window is up” and stopped the floating island. Reopening the app
+     after using it killed the island the user had switched on, and the switch
+     said Off the next time too. The bridge already answers all three
+     questions synchronously, so the boot reads them first and decides on the
+     truth instead of a default. Nothing on screen changes when the answers
+     agree with the defaults, which is every case the page handled before. */
+  function readSysState(){
+    try{
+      if(N && N.canDrawOverlays) sys.canDraw = !!N.canDrawOverlays();
+      if(N && N.overlayRunning)  sys.running = !!N.overlayRunning();
+      if(N && N.hasNotifAccess)  sys.notif   = !!N.hasNotifAccess();
+    }catch(e){}
+  }
 
   var syncing = false;
   function pushToOverlay(){
@@ -969,6 +987,7 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   invalidateStage();
   applyInsets();
   loadSettingsIntoUI();
+  readSysState();
   setPower(!!S.on, true);
   applyTargets(true);
   pushPosition();

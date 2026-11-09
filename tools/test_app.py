@@ -319,6 +319,71 @@ with sync_playwright() as p:
     chk("the reset page has no errors", len(rerrs) == 0, rerrs[:3])
     rst.close()
 
+    # ---- a stored "On" has to survive the app being reopened -------------
+    # The page decided the switch at boot from its own defaults - "no
+    # permission, nothing running" - before it had asked Android anything, so a
+    # stored On met sys.canDraw === false, was turned off and saved, and the
+    # __sysState that arrived a moment later then saw "off, but the window is
+    # up" and stopped the floating island. Reopening the app quietly killed an
+    # island the user had switched on, and the switch read Off from then on.
+    SEED_ON = ("try{localStorage.setItem('di.settings',JSON.stringify("
+               "{wm:1,hm:1,rm:1,alpha:.75,blur:18,bounce:.72,on:true,px:50,py:0,lock:true}));}catch(e){}")
+    # init scripts run in their own scope, so the counter is reached through
+    # window rather than through MOCK's `rec` helper
+    ASKS = ("(function(){var N=window.Native;if(!N)return;"
+            "var o=N.canDrawOverlays;"
+            "N.canDrawOverlays=function(){window.__calls.push(['canDrawOverlays']);"
+            "return o.apply(N,arguments);};})();")
+
+    def boot_page(can_draw, running):
+        c = b.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=3, color_scheme="dark")
+        c.add_init_script("window.__canDraw = %s; window.__running = %s;"
+                          % ("true" if can_draw else "false", "true" if running else "false"))
+        c.add_init_script(MOCK)
+        c.add_init_script(ASKS)
+        c.add_init_script(SEED_ON)
+        p_ = c.new_page()
+        e_ = []
+        p_.on("pageerror", lambda e: e_.append(str(e)))
+        p_.goto(URL); p_.wait_for_timeout(900)
+        return c, p_, e_
+
+    bc, bp, berrs = boot_page(True, True)
+    boot_label = lambda: bp.eval_on_selector("#pwLabel", "e=>e.textContent")
+    boot_calls = lambda: bp.evaluate("window.__calls.map(c=>c[0])")
+    boot_on = lambda: bp.evaluate("JSON.parse(localStorage.getItem('di.settings')).on")
+    chk("the boot asks Android for the overlay state instead of assuming it",
+        "canDrawOverlays" in boot_calls(), boot_calls())
+    chk("a stored On survives reopening the app with the island already up",
+        "On" in boot_label(), boot_label())
+    chk("reopening does not stop the floating island that was already running",
+        "stopOverlay" not in boot_calls() and bp.evaluate("window.__running") is True, boot_calls())
+    chk("reopening does not start a second island that is already running",
+        "startOverlay" not in boot_calls(), boot_calls())
+    chk("reopening leaves the stored switch setting alone", boot_on() is True, boot_on())
+    bp.evaluate("window.__calls.length = 0")
+    bp.evaluate("window.__sysState(true,true,false,'')"); bp.wait_for_timeout(300)
+    chk("the state push that follows keeps it running",
+        "On" in boot_label() and "stopOverlay" not in boot_calls()
+        and bp.evaluate("window.__running") is True, boot_calls())
+    bc.close()
+
+    bc2, bp2, berrs2 = boot_page(True, False)
+    chk("a stored On with nothing running starts the island again (reboot, service killed)",
+        "startOverlay" in bp2.evaluate("window.__calls.map(c=>c[0])")
+        and "On" in bp2.eval_on_selector("#pwLabel", "e=>e.textContent"),
+        bp2.evaluate("window.__calls.map(c=>c[0])"))
+    bc2.close()
+
+    bc3, bp3, berrs3 = boot_page(False, False)
+    chk("a stored On with the permission really gone is still turned off and saved",
+        "Off" in bp3.eval_on_selector("#pwLabel", "e=>e.textContent")
+        and bp3.evaluate("JSON.parse(localStorage.getItem('di.settings')).on") is False,
+        (bp3.eval_on_selector("#pwLabel", "e=>e.textContent"),))
+    chk("the boot pages have no errors",
+        len(berrs) + len(berrs2) + len(berrs3) == 0, (berrs[:2], berrs2[:2], berrs3[:2]))
+    bc3.close()
+
     # ---- the rest of the app ---------------------------------------------
     pg.eval_on_selector("#accHead", "e=>e.click()"); pg.wait_for_timeout(600)
     chk("accordion closes", pg.eval_on_selector("#accLook", "e=>e.classList.contains('closed')"))
