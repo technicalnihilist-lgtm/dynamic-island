@@ -74,8 +74,27 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (190 checks, all passing). The 1.7.16 entry is in
+reproduced, fixed and covered by `tools/test_app.py` (194 checks, all passing). The 1.7.16 entry is in
 the Android service rather than in the page, so the page suite is untouched by it.
+
+### 1.7.23 — optimisation slot 4
+
+1. **A tap just after the island had finished morphing had its animation snapped away.** `armSettle()`
+   arms a 1.5 s backstop that forces the springs to their target, for the case where frames stop
+   arriving — a throttled window, a screen that went off — so the island can never be stranded at an
+   in-between size. Nothing cancelled it when the loop settled on its own, which it does in about half
+   a second, so every morph left a live timer behind for the remaining second. A tap in that window
+   that starts a small wobble of its own is not a state change and arms nothing of its own: Next and
+   Previous nudge the width, Play and Mute nudge the height, and opening the island does both. Those
+   inherited the stale timer, and at 1.5 s it fired in the middle of them — the springs were snapped
+   to their target and the island jumped the last few pixels instead of easing into them. Both pages
+   had it, so the preview and the floating island jumped together. The backstop is now disarmed the
+   moment the springs come to rest, which is the moment it has nothing left to do; when frames really
+   do stop, `frame()` never runs, so the timer survives and still does its job. Nothing moves that did
+   not move before — the same morph, the same wobble, the same final size; only the truncation is gone.
+   Four new browser checks drive the loop by hand through the existing fake `requestAnimationFrame`:
+   morph, settle, nudge, one frame, then a real 1.7 s wait — the width must still be where the nudge
+   left it (318.84 px) and not back at the settled 318.00 px.
 
 ### 1.7.22 — optimisation slot 6
 

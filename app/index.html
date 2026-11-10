@@ -393,7 +393,7 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
     if(n === MAX_STEPS) bank = 0;
     paint();
     if(unsettled()) raf = requestAnimationFrame(frame);
-    else { lastT = 0; bank = 0; applyPos(); }
+    else { lastT = 0; bank = 0; applyPos(); disarmSettle(); }
   }
   function kick(){
     if(raf === null){ lastT = 0; raf = requestAnimationFrame(frame); }
@@ -410,6 +410,20 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   function armSettle(){
     if(settleT) clearTimeout(settleT);
     settleT = setTimeout(function(){ settleT = null; snapAll(); }, 1500);
+  }
+  /* The backstop is only there for the case it was written for: frames that
+     stop arriving, so the loop never gets to settle itself. Nothing cancelled
+     it once the loop DID settle, so a morph that finished in half a second
+     left a live timer behind for another second - and a tap in that second
+     that starts a small wobble of its own (play, mute, next, opening the
+     island) is not a state change, so it arms nothing and inherits the stale
+     one. At 1.5 s the timer fired in the middle of that wobble and snapped it
+     to its final size, so the island jumped instead of easing. Disarmed the
+     moment the springs come to rest, which is the moment it has nothing left
+     to do; if frames do stop, frame() never runs and the timer survives to do
+     its job. */
+  function disarmSettle(){
+    if(settleT){ clearTimeout(settleT); settleT = null; }
   }
   /* where the island sits inside the stage: the same percentages drive the
      floating window, so what you set here is what you get out there.

@@ -145,12 +145,12 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
       /* shrink the native window down to the island once it has stopped */
       var w=Math.round(spW.x), h=Math.round(spH.x);
       if(w!==settledW||h!==settledH){ settledW=w; settledH=h; resize(w,h); }
+      disarmSettle();
     }
   }
   function kick(){ if(raf===null){ lastT=0; raf=requestAnimationFrame(frame); } }
   /* frames can be throttled (screen off, host detached, heavy device). Settle
      anyway so the island is never stranded at an in-between size. */
-  var settleT=null;
   function snapAll(){
     spW.x=spW.t; spH.x=spH.t; spR.x=spR.t;
     spW.v=spH.v=spR.v=0;
@@ -160,6 +160,17 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     if(w!==settledW||h!==settledH){ settledW=w; settledH=h; resize(w,h); }
   }
   function armSettle(){ if(settleT) clearTimeout(settleT); settleT=setTimeout(function(){ settleT=null; snapAll(); },1500); }
+  /* The backstop exists for frames that stop arriving, so the loop never gets
+     to settle itself. It was never cancelled when the loop DID settle, so every
+     morph left a live timer behind for the rest of its 1.5 s - and a tap in
+     that window that starts a small wobble of its own (play, mute, next, a
+     media push from the service) is not a state change, arms nothing, and
+     inherited the stale one. At 1.5 s it fired mid-wobble and snapped the
+     island to its final size, and this page is the one on screen over other
+     apps, so the jump is the one the user sees. Disarmed when the springs come
+     to rest; if frames really do stop, frame() never runs and the timer lives
+     on to do its job. */
+  function disarmSettle(){ if(settleT){ clearTimeout(settleT); settleT=null; } }
   /* The island is drawn inside a native window cut to its own size, so a morph
      that makes it bigger has to grow the window first or the island is clipped
      at the old window's edges for the whole animation. setState did this; the

@@ -1056,6 +1056,53 @@ with sync_playwright() as p:
     chk("the floating island morph lands on its size either way",
         abs(o60["end"] - 318) <= 1 and abs(o10["end"] - 318) <= 1, (o60, o10))
     chk("the frame-rate page has no errors", len(ferrs) == 0 and len(oferrs) == 0, (ferrs[:3], oferrs[:3]))
+
+    # ---- the settle backstop must not cut the next animation short --------
+    # armSettle() is the 1.5 s net for frames that stop arriving, so the loop
+    # never gets to settle itself. Nothing cancelled it once the loop *did*
+    # settle, so every morph left a live timer behind for the rest of its 1.5 s
+    # - and a tap in that window that starts a small wobble of its own (next,
+    # play, mute, opening the island) is not a state change, so it arms nothing
+    # and inherits the stale one. At 1.5 s it fired in the middle of that wobble
+    # and snapped the island to its final size: it jumped instead of easing.
+    SETTLE_ARM = """function(){
+        var api = window.__di ? window.__di.setState : window.__setState;
+        api('music');                    /* this is what arms the 1.5 s net */
+        window.__rafRun(16.7, 900);      /* and the morph settles well before it */
+      }"""
+    SETTLE_WOBBLE = """function(){
+        var b = document.querySelector('[data-a="next"]');
+        if(b) b.click();                 /* a 55 px/s nudge; arms nothing itself */
+        window.__rafRun(16.7, 1);        /* one frame of it */
+        return parseFloat(document.getElementById('island').style.width);
+      }"""
+
+    def settle_race(page):
+        page.evaluate(SETTLE_ARM)
+        page.wait_for_timeout(250)       # the 110 ms content swap has landed
+        return page.evaluate(SETTLE_WOBBLE)
+
+    sp = fast.new_page()
+    sp.goto(URL); sp.wait_for_timeout(300)
+    mid = settle_race(sp)
+    sp.wait_for_timeout(1700)            # the stale net would fire inside this
+    after = sp.evaluate("parseFloat(document.getElementById('island').style.width)")
+    chk("the nudge had really started to move the island", abs(mid - 318) > 0.2, mid)
+    chk("a nudge just after a morph is not snapped away by the old settle timer",
+        abs(after - mid) < 0.05, (mid, after))
+    sp.close()
+
+    osp = fast.new_page()
+    osp.goto(OVERLAY_URL); osp.wait_for_timeout(300)
+    omid = settle_race(osp)
+    osp.wait_for_timeout(1700)
+    oafter = osp.evaluate("parseFloat(document.getElementById('island').style.width)")
+    chk("the floating island's nudge had really started to move it",
+        abs(omid - 318) > 0.2, omid)
+    chk("the floating island is not snapped away by the old settle timer either",
+        abs(oafter - omid) < 0.05, (omid, oafter))
+    osp.close()
+
     fast.close()
 
     b.close()
