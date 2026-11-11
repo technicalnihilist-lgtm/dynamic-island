@@ -74,8 +74,27 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (194 checks, all passing). The 1.7.16 entry is in
+reproduced, fixed and covered by `tools/test_app.py` (210 checks, all passing). The 1.7.16 entry is in
 the Android service rather than in the page, so the page suite is untouched by it.
+
+### 1.7.24 — optimisation slot 2
+
+1. **Controls that were hidden were still live for the keyboard and for a screen reader.** The sheet
+   collapses by clipping itself to its 38 px handle, and the look accordion closes by taking its panel
+   to `max-height: 0`. Neither did anything to the tab order or to the accessibility tree, so every
+   control in them stayed exactly as reachable as it was when open. With the accordion shut, Tab walked
+   through six sliders and a Reset button that measured zero pixels tall and drew nothing; with the
+   sheet collapsed, the same held for the whole control room — the system-wide switch, five activity
+   chips, three links and both position sliders. TalkBack announced all of them and would operate them
+   if you swiped to one, so a blind user could change settings through controls a sighted user cannot
+   see, and a keyboard user's focus ring disappeared into a clipped box with no way to tell where it
+   had gone. Both regions now go `inert` when they are hidden and come back when they are shown: out of
+   the tab order, out of the accessibility tree, and untouched in layout, paint and transition, so the
+   page looks exactly as it did. The grab handle and the accordion header stay reachable, so either can
+   still be opened again from the keyboard; where the WebView predates `inert` the attribute is set
+   instead and simply ignored, which is the behaviour the page had before. Sixteen new browser checks
+   cover both regions in both directions and assert that nothing in a collapsed region is left in the
+   focus order; five of them fail against the old page.
 
 ### 1.7.23 — optimisation slot 4
 

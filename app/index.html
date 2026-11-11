@@ -292,7 +292,26 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   /* ============ elements ============ */
   var island  = $('#island'), content = $('#content'), stage = $('#stage');
   var sheet   = $('#sheet'), grab = $('#grab');
+  var sheetBody = $('#sheetBody'), accBody = $('#accLook .bd');
   var live    = $('#live');
+
+  /* Taking a region out of reach without touching a pixel of it.
+     The accordion hides its panel with max-height:0 and the sheet clips itself
+     to its 38px handle, and both used to leave everything in there exactly
+     where it was for the keyboard and for a screen reader: six sliders and a
+     Reset button that measured zero pixels tall still took focus in turn, and
+     TalkBack announced and operated controls a sighted user could neither see
+     nor touch - a switch, five chips and three links, all of them invisible
+     but live. `inert` removes a subtree from the tab order and from the
+     accessibility tree while leaving layout, paint and the transition alone,
+     so what is on screen is bit for bit what it was. Where the WebView is too
+     old to know the property the attribute is set instead: it costs nothing
+     and is simply ignored, which is the behaviour the page had before. */
+  function setInert(el, on){
+    if(!el) return;
+    if('inert' in el){ el.inert = !!on; return; }
+    if(on) el.setAttribute('inert',''); else el.removeAttribute('inert');
+  }
 
   /* ============ geometry ============ */
   /* The island is clamped to the viewport, and paint() runs on every frame of
@@ -904,20 +923,21 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   });
 
   /* accordion */
-  (function(){
+  function setAccordion(open){
     var acc = $('#accLook'), head = $('#accHead');
-    head.addEventListener('click', function(){
-      var open = !acc.classList.contains('closed');
-      acc.classList.toggle('closed', open);
-      head.setAttribute('aria-expanded', open ? 'false' : 'true');
-      /* closing the accordion shrinks the sheet, and on a screen tall enough
-         that the sheet was not already at its 64vh cap that grows the stage
-         under the island; its share of it is recomputed once the transition is
-         over, the same way the sheet's own collapse already did it. */
-      setTimeout(function(){ invalidateStage(); applyPos(); }, 480);
-      haptic('light');
-    });
-  })();
+    acc.classList.toggle('closed', !open);
+    head.setAttribute('aria-expanded', open ? 'true' : 'false');
+    setInert(accBody, !open);
+    /* closing the accordion shrinks the sheet, and on a screen tall enough
+       that the sheet was not already at its 64vh cap that grows the stage
+       under the island; its share of it is recomputed once the transition is
+       over, the same way the sheet's own collapse already did it. */
+    setTimeout(function(){ invalidateStage(); applyPos(); }, 480);
+  }
+  $('#accHead').addEventListener('click', function(){
+    setAccordion($('#accLook').classList.contains('closed'));
+    haptic('light');
+  });
 
   /* bottom sheet collapse */
   var sheetOpen = true;
@@ -925,6 +945,9 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
     sheetOpen = open;
     sheet.classList.toggle('collapsed', !open);
     grab.setAttribute('aria-expanded', open ? 'true' : 'false');
+    /* the handle itself stays reachable, so the sheet can always be opened
+       again from the keyboard; only what it hides goes inert */
+    setInert(sheetBody, !open);
     invalidateStage();
     setTimeout(function(){ invalidateStage(); applyPos(); }, 500);
   }
@@ -992,7 +1015,7 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
     setState: function(s){ setState(s); },
     setPower: setPower,
     setSheet: setSheet,
-    openAccordion: function(o){ var acc=$('#accLook'); acc.classList.toggle('closed', !o); $('#accHead').setAttribute('aria-expanded', o?'true':'false'); },
+    openAccordion: function(o){ setAccordion(!!o); },
     get state(){ return state; }
   };
 

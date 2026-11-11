@@ -393,6 +393,85 @@ with sync_playwright() as p:
     chk("back reopens the sheet", pg.evaluate("window.__onBack()") is True)
     pg.wait_for_timeout(900)
 
+    # ---- what a collapsed region hides must not be reachable -------------
+    # The accordion hides its panel with max-height:0 and the sheet clips
+    # itself to its handle, but both left every control inside in the tab
+    # order and in the accessibility tree: a keyboard user walked through six
+    # sliders and a Reset button that were zero pixels tall, and TalkBack
+    # announced and operated a switch, five chips and three links that no
+    # sighted user could see. `inert` takes the subtree out of both, and the
+    # pixels must stay exactly as they were.
+    def can_focus(p, sel):
+        return p.evaluate(
+            "s=>{var e=document.querySelector(s); if(!e) return 'missing';"
+            " e.focus(); return document.activeElement === e;}", sel)
+
+    def inert_of(p, sel):
+        return p.evaluate(
+            "s=>{var e=document.querySelector(s); return !!e && e.inert === true;}", sel)
+
+    # start from a known state: this page has been through a lot already, and
+    # __onBack() above may have collapsed the island rather than the sheet
+    pg.evaluate("window.__di.setSheet(true); window.__di.openAccordion(true)")
+    pg.wait_for_timeout(700)
+    chk("the open accordion's panel is reachable",
+        can_focus(pg, "#sw") is True and inert_of(pg, "#accLook .bd") is False,
+        (can_focus(pg, "#sw"), inert_of(pg, "#accLook .bd")))
+
+    pg.eval_on_selector("#accHead", "e=>e.click()"); pg.wait_for_timeout(600)
+    chk("the closed accordion really hides its panel",
+        pg.eval_on_selector("#accLook .bd", "e=>getComputedStyle(e).maxHeight") == "0px")
+    chk("a slider in the closed accordion can no longer take focus",
+        can_focus(pg, "#sw") is False, can_focus(pg, "#sw"))
+    chk("nor can the reset button under it",
+        can_focus(pg, "#btnReset") is False, can_focus(pg, "#btnReset"))
+    chk("the closed accordion's panel is out of the accessibility tree",
+        inert_of(pg, "#accLook .bd") is True)
+    chk("the closed accordion's own header stays reachable",
+        can_focus(pg, "#accHead") is True)
+
+    pg.eval_on_selector("#accHead", "e=>e.click()"); pg.wait_for_timeout(500)
+    chk("reopening the accordion puts its panel back",
+        can_focus(pg, "#sw") is True and inert_of(pg, "#accLook .bd") is False)
+
+    # and the same for the sheet: the handle must stay reachable so the sheet
+    # can always be opened again from the keyboard
+    pg.evaluate("window.__di.setSheet(false)"); pg.wait_for_timeout(800)
+    chk("the sheet really collapsed",
+        pg.eval_on_selector("#sheet", "e=>e.classList.contains('collapsed')"))
+    chk("the collapsed sheet's body is out of reach",
+        can_focus(pg, "#pw") is False and inert_of(pg, "#sheetBody") is True,
+        (can_focus(pg, "#pw"), inert_of(pg, "#sheetBody")))
+    chk("but its handle can still be focused", can_focus(pg, "#grab") is True)
+
+    # the real question: walking the focus order must never enter the hidden
+    # body. Collect what is still reachable and look for anything in there.
+    HIDDEN = ["pw", "btnPerm", "sw", "sh", "sr", "sa", "sb", "sk",
+              "btnReset", "sx", "sy", "lk", "btnNotif",
+              "btnExpand", "btnCollapse"]
+    reachable = pg.evaluate("""()=>{
+      var all = Array.prototype.slice.call(document.querySelectorAll(
+        'a[href],button,input,select,textarea,[tabindex]'));
+      return all.filter(function(e){
+        return !e.closest('[inert]') && e.tabIndex >= 0 && !e.disabled;
+      }).map(function(e){ return e.id || e.tagName; });
+    }""")
+    chk("nothing in the collapsed sheet is still in the focus order",
+        not [x for x in HIDDEN if x in reachable], reachable)
+    chk("the handle is still in the focus order", "grab" in reachable, reachable)
+
+    pg.evaluate("window.__di.setSheet(true)")
+    pg.wait_for_timeout(700)
+    chk("reopening the sheet puts its body back",
+        can_focus(pg, "#pw") is True and inert_of(pg, "#sheetBody") is False)
+
+    # nothing about the pixels may have moved
+    chk("the sheet handle is still 26px tall",
+        pg.eval_on_selector("#grab", "e=>e.getBoundingClientRect().height") == 26)
+    chk("the sheet body is on screen again after reopening",
+        pg.eval_on_selector("#sheetBody", "e=>e.getBoundingClientRect().height") > 100)
+    chk("the a11y page has no errors", len(errs) == 0, errs[:3])
+
     pg.eval_on_selector("#btnNotif", "e=>e.click()"); pg.wait_for_timeout(200)
     chk("notification access button asks natively", "requestNotifAccess" in calls())
 
