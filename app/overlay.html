@@ -61,6 +61,24 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
 .ib svg{width:19px;height:19px;fill:#fff;pointer-events:none}
 .ib.act{background:#fff}.ib.act svg{fill:#000}
 .ib.red{background:#ff453a}
+
+/* The control room has honoured "Remove animations" since the first pass: with
+   the setting on, its drifting orbs, level meters, waveform and pulsing call dot
+   are all switched off and the content fades in quickly instead of springing.
+   This page - the one that is actually on screen over every other app - never
+   had the rule, so the same user saw the preview holding still and the floating
+   island waving and pulsing at them from the top of the screen, and paid for
+   three infinite animations in a window that is above everything else, for as
+   long as a call or a track was up. The animations here are the same three the
+   preview switches off, so they are switched off the same way; the static
+   heights each bar is left at are the ones the keyframes start from, so the
+   island is the shape it always is when it is not moving. Nothing changes for
+   anyone who has not asked the system for reduced motion. */
+@media (prefers-reduced-motion:reduce){
+  .wave i,.bars i,.ring{animation:none!important}
+  .content{transition:opacity .1s linear}
+  .btn,.ib{transition-duration:.01s}
+}
 </style>
 </head>
 <body>

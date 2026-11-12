@@ -74,8 +74,29 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (218 checks, all passing). The 1.7.16 entry is in
+reproduced, fixed and covered by `tools/test_app.py` (234 checks, all passing). The 1.7.16 entry is in
 the Android service rather than in the page, so the page suite is untouched by it.
+
+### 1.7.26 — optimisation slot 6
+
+1. **The floating island ignored "Remove animations" — the one page that is always on screen.** The
+   preview in the app has honoured the system setting since the first pass: with *Remove animations* on,
+   its drifting orbs, level meters, waveform and pulsing call dot all stop, and its content fades in
+   quickly instead of springing. `overlay.html` — the page drawn in the system overlay window, over
+   every other app, and the only one a user actually looks at — never had the rule at all. So the same
+   user saw the preview holding perfectly still and, directly above it, the floating island waving,
+   metering and pulsing away; and while a call or a track was up it kept three infinite animations
+   running in the top-most window of the phone, animating `height` and `box-shadow` on every frame,
+   for as long as the state lasted — which is exactly the work that setting exists to switch off. The
+   same three selectors are now disabled there, the same way: the bars are left at the static heights
+   their keyframes start from, so the island is the shape it already has when it is not moving, and the
+   content fade becomes the short one the preview uses. Nothing changes for anyone who has not asked
+   the system for reduced motion — the meters, the waveform and the dot animate exactly as before — and
+   no pixel of the layout, the sizes or the wording moves either way. Sixteen new browser checks load
+   both pages twice, once with motion allowed and once with `reduced_motion=reduce`, and assert the
+   animations are still there in the first case, are gone in the second, that the island still shows
+   the track and the call timer and still lands at 318×128, and that the two pages now agree; five of
+   them fail against the old page.
 
 ### 1.7.25 — optimisation slot 1
 

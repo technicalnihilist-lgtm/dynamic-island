@@ -1229,6 +1229,81 @@ with sync_playwright() as p:
     chk("the mirror page has no errors", len(merrs) == 0, merrs[:3])
     mir.close()
 
+    # ---- "Remove animations" must reach the island that is actually on screen
+    # The preview has honoured the system setting since the first pass; the
+    # floating island's page never had the rule, so with "Remove animations" on
+    # the preview held still and the island over every other app went on waving,
+    # metering and pulsing - three infinite animations in the top-most window,
+    # for as long as a call or a track was up. Both pages must agree now, and
+    # neither may lose its animation for a user who has not asked for that.
+    def anim(sel):
+        return ("(function(){var e=document.querySelector(%r);"
+                "return e?getComputedStyle(e).animationName:'(none)'})()" % sel)
+
+    def open_page(url, reduced):
+        c = b.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=3,
+                          color_scheme="dark",
+                          reduced_motion=("reduce" if reduced else "no-preference"))
+        c.add_init_script(MOCK)
+        pg = c.new_page()
+        errs = []
+        pg.on("pageerror", lambda e: errs.append(str(e)))
+        pg.goto(url); pg.wait_for_timeout(700)
+        return c, pg, errs
+
+    # --- the floating island, with motion allowed: exactly as before ---
+    oc, opg, oerrs = open_page(OVERLAY_URL, False)
+    opg.evaluate("window.__setState('music')"); opg.wait_for_timeout(500)
+    chk("the floating island still meters a playing track",
+        opg.evaluate(anim(".bars i")) == "w", opg.evaluate(anim(".bars i")))
+    opg.evaluate("window.__setState('ongoing')"); opg.wait_for_timeout(500)
+    chk("the floating island still waves during a call",
+        opg.evaluate(anim(".wave i")) == "w", opg.evaluate(anim(".wave i")))
+    chk("the floating island still pulses the call dot",
+        opg.evaluate(anim(".ring")) == "p", opg.evaluate(anim(".ring")))
+    oc.close()
+
+    # --- the floating island, with reduced motion asked for ---
+    rc, rpg, rerrs = open_page(OVERLAY_URL, True)
+    rpg.evaluate("window.__setState('music')"); rpg.wait_for_timeout(600)
+    chk("reduced motion stops the floating island's level meters",
+        rpg.evaluate(anim(".bars i")) == "none", rpg.evaluate(anim(".bars i")))
+    chk("and the bars keep a static height instead of collapsing",
+        rpg.evaluate("parseFloat(getComputedStyle(document.querySelector('.bars i')).height)") == 8,
+        rpg.evaluate("getComputedStyle(document.querySelector('.bars i')).height"))
+    chk("the floating island still shows the track under reduced motion",
+        rpg.evaluate("(document.querySelector('.content')||{}).className") == "content in",
+        rpg.evaluate("(document.querySelector('.content')||{}).className"))
+    chk("and still lands at the right size",
+        near(rpg.eval_on_selector("#island", "e=>{const r=e.getBoundingClientRect();return {w:Math.round(r.width),h:Math.round(r.height)}}"), 318, 128),
+        rpg.eval_on_selector("#island", "e=>{const r=e.getBoundingClientRect();return {w:Math.round(r.width),h:Math.round(r.height)}}"))
+
+    rpg.evaluate("window.__setState('ongoing')"); rpg.wait_for_timeout(600)
+    chk("reduced motion stops the floating island's waveform",
+        rpg.evaluate(anim(".wave i")) == "none", rpg.evaluate(anim(".wave i")))
+    chk("reduced motion stops the pulsing call dot",
+        rpg.evaluate(anim(".ring")) == "none", rpg.evaluate(anim(".ring")))
+    chk("the call timer is still on screen",
+        rpg.evaluate("(document.querySelector('[data-role=\"time\"]')||{}).textContent") is not None,
+        rpg.evaluate("(document.querySelector('[data-role=\"time\"]')||{}).textContent"))
+    chk("the content fade is the short one, not the spring",
+        rpg.evaluate("getComputedStyle(document.querySelector('.content')).transitionDuration").split(",")[0].strip() == "0.1s",
+        rpg.evaluate("getComputedStyle(document.querySelector('.content')).transitionDuration"))
+    chk("the reduced-motion island page has no errors", len(rerrs) == 0, rerrs[:3])
+    rc.close()
+
+    # --- the preview already did this; it must keep doing it, and agree ---
+    ic, ipg, ierrs = open_page(URL, True)
+    ipg.evaluate("window.__di.setState('music')"); ipg.wait_for_timeout(700)
+    chk("the preview still stops its level meters under reduced motion",
+        ipg.evaluate(anim(".bars i")) == "none", ipg.evaluate(anim(".bars i")))
+    chk("the preview still stops its drifting orbs under reduced motion",
+        ipg.evaluate(anim(".orb")) == "none", ipg.evaluate(anim(".orb")))
+    chk("both pages now agree about the level meters",
+        ipg.evaluate(anim(".bars i")) == "none", ipg.evaluate(anim(".bars i")))
+    chk("the reduced-motion preview has no errors", len(ierrs) == 0, ierrs[:3])
+    ic.close()
+
     b.close()
 
 print("\n%d checks, %d failed" % (checks[0], len(fails)))
