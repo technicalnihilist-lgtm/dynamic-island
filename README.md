@@ -74,8 +74,26 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (210 checks, all passing). The 1.7.16 entry is in
+reproduced, fixed and covered by `tools/test_app.py` (218 checks, all passing). The 1.7.16 entry is in
 the Android service rather than in the page, so the page suite is untouched by it.
+
+### 1.7.25 — optimisation slot 1
+
+1. **The preview buzzed the phone for a gesture the user had made somewhere else, minutes earlier.**
+   While the system-wide island is on, the preview in the app is a mirror of it: the service pushes the
+   floating island's state into the page — on every resume (`MainActivity.pushSystemState`), and
+   whenever the user changes it out there — through `__overlayState`, which sets `syncing`, runs
+   `setState` and clears it again. `syncing` exists so the mirror is not echoed back to the service as
+   if it were a tap, but it stopped at the bridge: `setState` ends with a haptic, which belongs to a
+   gesture. So collapsing or expanding the island over another app and then reopening this one gave a
+   vibration — a `light` one when the mirrored state was idle, a `medium` one otherwise — for a tap
+   that had already been answered and that nothing on screen could explain. The flag that already
+   means "this did not come from the user" now suppresses the buzz as well. Nothing on screen moves:
+   the mirror still morphs, still updates the chips, still announces the state to a screen reader, and
+   the preview still does not echo it back. Every real gesture is untouched — a chip, the island
+   itself, Expand, Collapse, a call arriving and a notification all buzz exactly as they did. Eight new
+   browser checks mirror a state in and back out and assert no haptic crosses the bridge, then tap a
+   chip, the island and Expand and assert each still does; two of them fail against the old page.
 
 ### 1.7.24 — optimisation slot 2
 

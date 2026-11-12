@@ -616,7 +616,17 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
 
     syncUI();
     pushToOverlay();
-    haptic(next === 'idle' ? 'light' : 'medium');
+    /* A state that arrived from the floating island is a mirror, not a tap:
+       the page is redrawing something the user already did out there, often
+       minutes ago, in another app. It buzzed on the way in all the same, so
+       collapsing or expanding the floating island over another app and then
+       coming back to this one gave a vibration for a gesture that had already
+       been answered - and one that pointed at nothing on screen. `syncing` is
+       already the flag that says "this did not come from the user" (it is what
+       keeps the mirror from being echoed back to the service); the buzz is
+       suppressed by it too. A tap, a chip, Expand, Collapse, a call arriving
+       and a notification all still buzz exactly as before. */
+    if(!syncing) haptic(next === 'idle' ? 'light' : 'medium');
   }
 
   function syncUI(){

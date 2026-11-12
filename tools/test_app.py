@@ -1184,6 +1184,51 @@ with sync_playwright() as p:
 
     fast.close()
 
+    # ---- mirroring the floating island must not feel like a tap -----------
+    # While the system-wide island is on, this page is a mirror of it: the
+    # service tells it what the floating island is showing, both on resume and
+    # whenever the user changes it out there. setState() runs the whole state
+    # change - and it ended with a haptic, which belongs to a gesture. So
+    # collapsing the island over another app and then coming back to this one
+    # buzzed the phone for a tap that had already been answered, with nothing
+    # on screen to explain it. `syncing` already marks exactly those calls (it
+    # is what stops the mirror being echoed back to the service); the buzz is
+    # suppressed by it now, and every real gesture still buzzes.
+    mir = b.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=3, color_scheme="dark")
+    mir.add_init_script(MOCK)
+    mp = mir.new_page()
+    merrs = []
+    mp.on("pageerror", lambda e: merrs.append(str(e)))
+    mp.goto(URL); mp.wait_for_timeout(900)
+    mhapt = lambda: mp.evaluate(
+        "window.__calls.filter(function(c){return c[0]==='haptic'}).length")
+
+    mp.evaluate("window.__calls.length = 0")
+    mp.evaluate("window.__overlayState('music')"); mp.wait_for_timeout(1700)
+    chk("a state from the floating island is mirrored on screen",
+        mp.evaluate("window.__di.state") == "music", mp.evaluate("window.__di.state"))
+    chk("and lands at the right size",
+        near(box_of(mp), 318, 128), box_of(mp))
+    chk("mirroring the floating island does not buzz the phone", mhapt() == 0, mhapt())
+
+    mp.evaluate("window.__calls.length = 0")
+    mp.evaluate("window.__overlayState('idle')"); mp.wait_for_timeout(700)
+    chk("mirroring a collapse does not buzz either", mhapt() == 0, mhapt())
+
+    mp.evaluate("window.__calls.length = 0")
+    mp.click('#states .chip[data-s="incoming"]'); mp.wait_for_timeout(400)
+    chk("a state the user picks still buzzes", mhapt() >= 1, mhapt())
+
+    mp.evaluate("window.__calls.length = 0")
+    mp.eval_on_selector("#island", "e=>e.click()"); mp.wait_for_timeout(500)
+    chk("tapping the island itself still buzzes", mhapt() >= 1, mhapt())
+
+    mp.evaluate("window.__calls.length = 0")
+    mp.eval_on_selector("#btnExpand", "e=>e.click()"); mp.wait_for_timeout(500)
+    chk("Expand still buzzes", mhapt() >= 1, mhapt())
+    chk("the mirror page has no errors", len(merrs) == 0, merrs[:3])
+    mir.close()
+
     b.close()
 
 print("\n%d checks, %d failed" % (checks[0], len(fails)))
