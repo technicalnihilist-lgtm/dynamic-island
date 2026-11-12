@@ -74,8 +74,29 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (265 checks, all passing). The 1.7.16 entry is in
+reproduced, fixed and covered by `tools/test_app.py` (281 checks, all passing). The 1.7.16 entry is in
 the Android service rather than in the page, so the page suite is untouched by it.
+
+### 1.7.29 — optimisation slot 10
+
+1. **The island bounced for users who had asked the system to remove animations.** Both pages honour
+   `prefers-reduced-motion` for everything CSS draws: the drifting orbs stop, the level meters and the
+   waveform freeze, the pulsing call dot goes still and the content fade drops to 0.1 s. The morph —
+   the one animation that dominates the screen — is not a CSS animation at all. It is the spring loop,
+   integrating 1/240 s steps a frame at a time, and it never asked about the preference. So a user who
+   had set "Remove animations", almost always for vestibular trouble or migraine, still got a
+   half-second bounce with an overshoot of about fifty pixels on every state change — measured at
+   371 px against a 318 px target in the preview — and two more of them on every Mute, Speaker, play
+   and next, in a window that sits above every other app. Where the preference is set the springs are
+   put straight on their targets and no frame loop is started at all: the island lands on exactly the
+   same pixels in one frame instead of thirty, and the backstop timer a finished morph used to leave
+   behind is not armed. A morph already in flight when the setting is switched finishes on its target
+   instead of mid-bounce. Everyone who has not asked for it sees precisely what they saw before — same
+   overshoot, same wobble, same timing. Sixteen new browser checks sample the island's box on every
+   frame across a state change and a tap and assert the shape of it: no in-between sizes and no
+   overshoot under the preference, and the old bounce still there without it, on both pages. The
+   morph sampler, run against the pages before this change, reports 44–49 animated frames and the
+   371 px peak; the same sampler reports one frame and 318 px after it.
 
 ### 1.7.28 — optimisation slot 9
 

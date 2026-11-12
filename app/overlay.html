@@ -108,6 +108,18 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     var a=-k*(this.x-this.t)-c*this.v; this.v+=a*dt; this.x+=this.v*dt;
   };
   var spW=new Spring(130), spH=new Spring(38), spR=new Spring(19);
+  /* The rule above switches off this page's three CSS animations for a user who
+     asked for reduced motion, but the morph is not one of them: it is the spring
+     loop below, and it never asked. So the same user still got the biggest
+     animation in the app - a half-second bounce with an overshoot of fifty-odd
+     pixels - every time the island changed size, and two more of them on every
+     Mute, Speaker, play or next. Where the preference is set the springs are put
+     straight on their targets and no frame loop is started at all: the island
+     lands on exactly the same pixels in one frame instead of thirty, in a window
+     that sits above every other app. Nobody else sees any difference. */
+  var mqReduce=null;
+  try{ mqReduce = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null; }catch(e){ mqReduce=null; }
+  function reduceMotion(){ return !!(mqReduce && mqReduce.matches); }
   var DAMP={w:0,h:0,r:0};
   function recomputeDamping(){
     var z=clamp(.95-.80*S.bounce,.12,1.02);
@@ -166,7 +178,21 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
       disarmSettle();
     }
   }
-  function kick(){ if(raf===null){ lastT=0; raf=requestAnimationFrame(frame); } }
+  function kick(){
+    if(raf===null){
+      /* every caller only wants the island on its target; for a user who asked
+         for no motion, put it there without spending a single frame */
+      if(reduceMotion()){ snapAll(); return; }
+      lastT=0; raf=requestAnimationFrame(frame);
+    }
+  }
+  /* one place decides how a new target is reached: a bounce for everyone else,
+     the settled size at once for a user who asked for none - and no backstop
+     timer left behind for a morph that has already finished */
+  function morph(){
+    if(reduceMotion()){ snapAll(); disarmSettle(); }
+    else { kick(); armSettle(); }
+  }
   /* frames can be throttled (screen off, host detached, heavy device). Settle
      anyway so the island is never stranded at an in-between size. */
   function snapAll(){
@@ -320,7 +346,7 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     targets();
     /* grow the native window first so nothing is clipped while it morphs */
     ensureWindow();
-    kick(); armSettle();
+    morph();
 
     var my=++token;
     content.classList.remove('in');
@@ -412,7 +438,7 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     if(typeof hm==='number') S.hm=hm;
     if(typeof rm==='number') S.rm=rm;
     if(typeof b==='number'){ S.bounce=b; recomputeDamping(); }
-    targets(); ensureWindow(); kick(); armSettle();
+    targets(); ensureWindow(); morph();
   };
   window.__setMax=function(px){
     if(typeof px==='number' && px>80){ maxW=px; targets(); ensureWindow(); kick(); }
@@ -492,6 +518,15 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
   };
 
   recomputeDamping();
+  /* the preference can be switched while the island is on screen; a morph
+     caught in flight has to finish on its target, not mid-bounce */
+  if(mqReduce){
+    var onReduceChange=function(){ if(mqReduce.matches){ snapAll(); disarmSettle(); } };
+    try{
+      if(mqReduce.addEventListener) mqReduce.addEventListener('change', onReduceChange);
+      else if(mqReduce.addListener) mqReduce.addListener(onReduceChange);
+    }catch(e){}
+  }
   targets();
   paint();
   resize(Math.round(spW.t),Math.round(spH.t));

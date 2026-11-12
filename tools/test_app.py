@@ -1347,6 +1347,83 @@ with sync_playwright() as p:
     chk("the reduced-motion preview has no errors", len(ierrs) == 0, ierrs[:3])
     ic.close()
 
+    # ---- ...and the morph, which is not a CSS animation -------------------
+    # Everything above switches off CSS animations. The morph is not one: it is
+    # the spring loop, and it never asked about the preference, so "Remove
+    # animations" still bought the biggest animation in the app - a half-second
+    # bounce that overshoots by about fifty pixels - on every state change, and
+    # again on every Mute, Speaker, play and next. Sample the island's box on
+    # every frame from the moment the state changes and read the shape of it:
+    # with the preference on there must be no in-between sizes and no overshoot;
+    # with it off the bounce must be exactly what it always was.
+    def sample(pg, trigger, ms=700):
+        pg.evaluate("(function(){window.__samp=[];window.__t0=performance.now();"
+                    "(function step(){var r=document.querySelector('#island')"
+                    ".getBoundingClientRect();"
+                    "window.__samp.push([Math.round(performance.now()-window.__t0),"
+                    "Math.round(r.width*10)/10,Math.round(r.height*10)/10]);"
+                    "if(performance.now()-window.__t0<%d) requestAnimationFrame(step);})();})()" % ms)
+        pg.evaluate(trigger)
+        pg.wait_for_timeout(ms + 60)
+        return pg.evaluate("window.__samp")
+
+    def widths(s):  return [w for t, w, h in s]
+    def heights(s): return [h for t, w, h in s]
+    def between(s, lo, hi):
+        return [w for w in widths(s) if lo + .5 < w < hi - .5]
+
+    rc2, rpg2, rerrs2 = open_page(OVERLAY_URL, True)
+    s = sample(rpg2, "window.__setState('music')")
+    chk("reduced motion stops the floating island's morph between sizes",
+        len(between(s, 130, 318)) == 0, between(s, 130, 318)[:5])
+    chk("the floating island lands on its target size instead of bouncing to it",
+        max(widths(s)) <= 318.5, max(widths(s)))
+    chk("and it is already there on the first frame after the change",
+        [w for t, w, h in s if t >= 34][0] == 318, s[:4])
+    after = [h for t, w, h in s if t >= 34]
+    chk("the wobble a tap makes is gone too under reduced motion",
+        len(set(after)) == 1, sorted(set(after))[:5])
+    s = sample(rpg2, "document.querySelector('[data-a=\"play\"]').click()", 450)
+    chk("pressing play under reduced motion does not wobble the floating island",
+        len(set(heights(s))) == 1 and len(set(widths(s))) == 1,
+        (sorted(set(widths(s)))[:4], sorted(set(heights(s)))[:4]))
+    chk("the island still shows the paused track",
+        rpg2.evaluate("(document.querySelector('.rows')||{}).className") == "rows paused",
+        rpg2.evaluate("(document.querySelector('.rows')||{}).className"))
+    chk("the snapped floating island page has no errors", len(rerrs2) == 0, rerrs2[:3])
+    rc2.close()
+
+    nc, npg, nerrs = open_page(OVERLAY_URL, False)
+    s = sample(npg, "window.__setState('music')")
+    chk("without the preference the floating island still morphs through sizes",
+        len(between(s, 130, 318)) >= 3, between(s, 130, 318)[:5])
+    chk("and still overshoots its target the way the spring is tuned to",
+        max(widths(s)) > 318.5, max(widths(s)))
+    after = [h for t, w, h in s if t >= 34]
+    chk("and a tap still wobbles it for everyone else",
+        len(set(after)) > 1, sorted(set(after))[:5])
+    chk("the unthrottled floating island page has no errors", len(nerrs) == 0, nerrs[:3])
+    nc.close()
+
+    ic2, ipg2, ierrs2 = open_page(URL, True)
+    s = sample(ipg2, "window.__di.setState('music')")
+    chk("reduced motion stops the preview's morph between sizes",
+        len(between(s, 130, 318)) == 0, between(s, 130, 318)[:5])
+    chk("the preview lands on its target size instead of bouncing to it",
+        max(widths(s)) <= 318.5, max(widths(s)))
+    chk("the preview's island is still the size it should be afterwards",
+        near(ipg2.eval_on_selector("#island", "e=>{const r=e.getBoundingClientRect();return {w:Math.round(r.width),h:Math.round(r.height)}}"), 318, 128),
+        ipg2.eval_on_selector("#island", "e=>{const r=e.getBoundingClientRect();return {w:Math.round(r.width),h:Math.round(r.height)}}"))
+    # the preference can be turned on while a morph is in flight
+    ipg2.evaluate("window.__di.setState('idle')"); ipg2.wait_for_timeout(700)
+    ipg2.evaluate("window.__di.setState('music')"); ipg2.wait_for_timeout(90)
+    ipg2.emulate_media(reduced_motion="reduce"); ipg2.wait_for_timeout(220)
+    mid = ipg2.eval_on_selector("#island", "e=>Math.round(e.getBoundingClientRect().width*10)/10")
+    chk("turning the preference on mid-morph finishes the morph on its target",
+        mid == 318, mid)
+    chk("the snapped preview page has no errors", len(ierrs2) == 0, ierrs2[:3])
+    ic2.close()
+
     # ---- the floating island must only buzz for what reached the user ------
     # setState() ends with a haptic, which belongs to a gesture. Three of its
     # callers are not gestures on this page: the app's own controls pushing

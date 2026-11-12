@@ -345,6 +345,22 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   var spW = new Spring(BASE.idle.w), spH = new Spring(BASE.idle.h),
       spR = new Spring(16),            spS = new Spring(1);
 
+  /* Every CSS animation and transition in this page already honours the
+     system's "remove animations" setting: the orbs stop drifting, the level
+     meters freeze and the content fade drops to 0.1 s. The morph does not,
+     because it is not a CSS animation - it is the spring loop below, drawn a
+     frame at a time, and it never asked. So a user who set that preference -
+     the usual reason is vestibular trouble, migraine or motion sensitivity -
+     still got the one animation that dominates the screen: a half-second
+     bounce with an overshoot of fifty-odd pixels, on every tap, every chip,
+     every state the island takes. Where the preference is set the springs are
+     put straight on their targets and the loop is never started; the island
+     lands on exactly the same pixels, in one frame instead of thirty. Users
+     who have not asked for it see precisely what they saw before. */
+  var mqReduce = null;
+  try{ mqReduce = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null; }catch(e){ mqReduce = null; }
+  function reduceMotion(){ return !!(mqReduce && mqReduce.matches); }
+
   /* damping only changes when the bounce slider moves, so it is computed once
      per change instead of once per spring per frame */
   var DAMP = { w:0, h:0, r:0, s:0 };
@@ -415,7 +431,13 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
     else { lastT = 0; bank = 0; applyPos(); disarmSettle(); }
   }
   function kick(){
-    if(raf === null){ lastT = 0; raf = requestAnimationFrame(frame); }
+    if(raf === null){
+      /* nothing to animate for someone who asked for no motion: every caller
+         of kick() only wants the island to reach its target, so put it there
+         and spend no frames doing it */
+      if(reduceMotion()){ snapAll(); return; }
+      lastT = 0; raf = requestAnimationFrame(frame);
+    }
   }
   /* if frames are throttled (backgrounded tab, heavy device) settle anyway
      so the island can never be left stranded at an in-between size */
@@ -482,6 +504,13 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
     spH.t = b.h*S.hm;
     spR.t = Math.min(spH.t/2, 38)*S.rm;
     if(snap){ spW.x = spW.t; spH.x = spH.t; spR.x = spR.t; paint(); }
+    else if(reduceMotion()){
+      /* no bounce for a user who asked for none, and no backstop timer left
+         behind for a morph that has already finished */
+      spW.x = spW.t; spH.x = spH.t; spR.x = spR.t;
+      spW.v = spH.v = spR.v = 0;
+      paint(); disarmSettle();
+    }
     else {
       /* a little extra push in the direction of travel makes the morph feel
          fluid instead of merely damped - big jumps bounce more than small ones */
@@ -1041,6 +1070,15 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   pushLock();
   syncLockUI();
   recomputeDamping();
+  /* the preference can be changed while the app is open; a morph caught in
+     flight when it is set has to finish on its target, not mid-bounce */
+  if(mqReduce){
+    var onReduceChange = function(){ if(mqReduce.matches){ snapAll(); disarmSettle(); } };
+    try{
+      if(mqReduce.addEventListener) mqReduce.addEventListener('change', onReduceChange);
+      else if(mqReduce.addListener) mqReduce.addListener(onReduceChange);
+    }catch(e){}
+  }
   tickClock();
   scheduleClock();
   window.addEventListener('resize', function(){ readViewport(); invalidateStage(); applyTargets(false); });
