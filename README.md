@@ -74,8 +74,27 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (234 checks, all passing). The 1.7.16 entry is in
+reproduced, fixed and covered by `tools/test_app.py` (253 checks, all passing). The 1.7.16 entry is in
 the Android service rather than in the page, so the page suite is untouched by it.
+
+### 1.7.27 — optimisation slot 7
+
+1. **The floating island buzzed the phone for state changes nobody had asked it for.** `setState()` in
+   `overlay.html` ends with a haptic, and a haptic belongs to a gesture: something was tapped on the
+   island and the phone acknowledges it. But that function has three other callers, and every one of
+   them was a buzz for something the user had not done to it. The app's own controls push their state
+   across the bridge through `__setState` — and the preview in the app has already buzzed for that
+   same tap a few milliseconds earlier, so one chip in the control room vibrated the phone twice. A
+   page whose renderer Android reclaimed is rebuilt and replayed into its last state through the same
+   call, so the WebView being killed under memory pressure vibrated the phone with nothing on screen
+   to explain it. And every state that ends itself ran its collapse through here too: a notification's
+   seven seconds running out, a track stopping in another app, the caller hanging up — so the island
+   going away quietly was felt as a tap, once per notification and once per call, on the battery as
+   well as on the wrist. Those paths now take a `silent` flag and run the same morph, in the same
+   time, to the same pixels, with the motor left alone. The three things that really do arrive at the
+   user — a tap on the island, a call arriving, a notification arriving — still buzz exactly as they
+   did. Nineteen new browser checks drive the floating island through all of it and count the haptics
+   crossing the bridge; five of them fail against the old page.
 
 ### 1.7.26 — optimisation slot 6
 

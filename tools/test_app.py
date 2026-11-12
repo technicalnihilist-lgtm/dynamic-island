@@ -1304,6 +1304,95 @@ with sync_playwright() as p:
     chk("the reduced-motion preview has no errors", len(ierrs) == 0, ierrs[:3])
     ic.close()
 
+    # ---- the floating island must only buzz for what reached the user ------
+    # setState() ends with a haptic, which belongs to a gesture. Three of its
+    # callers are not gestures on this page: the app's own controls pushing
+    # their state across the bridge (the preview has already buzzed for that
+    # tap), a rebuilt page replaying the state it was showing when Android
+    # killed the renderer, and every state that ends itself - a notification's
+    # seven seconds running out, a track stopping in another app, the caller
+    # hanging up. All three buzzed, so the island vibrated for things the user
+    # had not done to it, and the quiet collapse was felt as a tap.
+    hz = b.new_context(viewport={"width": 390, "height": 200}, device_scale_factor=3,
+                       color_scheme="dark")
+    hz.add_init_script(MOCK)
+    hp = hz.new_page()
+    herrs = []
+    hp.on("pageerror", lambda e: herrs.append(str(e)))
+    hp.goto(OVERLAY_URL); hp.wait_for_timeout(700)
+    hbox = lambda: hp.eval_on_selector("#island", "e=>{const r=e.getBoundingClientRect();return {w:Math.round(r.width),h:Math.round(r.height)}}")
+    hbuzz = lambda: hp.evaluate(
+        "window.__calls.filter(function(c){return c[0]==='haptic'}).length")
+
+    # a rebuilt page replays the state it was showing when its renderer died
+    hp.evaluate("window.__calls.length = 0")
+    hp.evaluate("window.__setState('music')"); hp.wait_for_timeout(900)
+    chk("a replayed state still opens the floating island", near(hbox(), 318, 128), hbox())
+    chk("replaying a state into a rebuilt page does not buzz", hbuzz() == 0, hbuzz())
+
+    # the app's controls push their state through the same hook
+    hp.evaluate("window.__calls.length = 0")
+    hp.evaluate("window.__setState('incoming')"); hp.wait_for_timeout(900)
+    chk("a state pushed from the app's controls still shows", near(hbox(), 312, 88), hbox())
+    chk("and does not buzz a second time for the same tap", hbuzz() == 0, hbuzz())
+    chk("the pushed state is still reported back to native",
+        "stateChanged" in hp.evaluate("window.__calls.map(c=>c[0])"),
+        hp.evaluate("window.__calls.map(c=>c[0])"))
+
+    # a notification is an alert: it must still buzz on arrival
+    hp.evaluate("window.__setState('idle')"); hp.wait_for_timeout(900)
+    hp.evaluate("window.__calls.length = 0")
+    hp.evaluate("window.__notify('Messages','Maya Chen','See you at 8')")
+    hp.wait_for_timeout(600)
+    chk("a notification arriving still buzzes", hbuzz() >= 1, hbuzz())
+    # the springs overshoot on the way there, so wait for the box to stop moving
+    prev = None
+    for _ in range(30):
+        g = hbox()
+        if near(g, 318, 94) and g == prev: break
+        prev = g
+        hp.wait_for_timeout(100)
+    chk("the notification is on screen", near(hbox(), 318, 94), hbox())
+    arrived = hbuzz()
+    hp.wait_for_timeout(7000)
+    prev = None
+    for _ in range(30):
+        g = hbox()
+        if near(g, 130, 38) and g == prev: break
+        prev = g
+        hp.wait_for_timeout(100)
+    chk("and it still auto-dismisses", near(hbox(), 130, 38), hbox())
+    chk("a notification dismissing itself does not buzz", hbuzz() == arrived,
+        (arrived, hbuzz()))
+
+    # the caller hanging up, or the track stopping, ends the state on its own
+    hp.evaluate("window.__calls.length = 0")
+    hp.evaluate("window.__call('Ravi Kumar','Incoming call')"); hp.wait_for_timeout(900)
+    chk("a call arriving still buzzes", hbuzz() >= 1, hbuzz())
+    rang = hbuzz()
+    hp.evaluate("window.__callEnd()"); hp.wait_for_timeout(900)
+    chk("a call ending on its own collapses the island", near(hbox(), 130, 38), hbox())
+    chk("a call ending on its own does not buzz", hbuzz() == rang, (rang, hbuzz()))
+
+    hp.evaluate("window.__calls.length = 0")
+    hp.evaluate("window.__music('Glass Hours','Neon Tide',true)"); hp.wait_for_timeout(900)
+    played = hbuzz()
+    hp.evaluate("window.__musicEnd()"); hp.wait_for_timeout(900)
+    chk("a track stopping elsewhere collapses the island", near(hbox(), 130, 38), hbox())
+    chk("a track stopping elsewhere does not buzz", hbuzz() == played, (played, hbuzz()))
+
+    # and the one gesture this page really does own still buzzes
+    hp.evaluate("window.__calls.length = 0")
+    hp.eval_on_selector("#island", "e=>e.click()"); hp.wait_for_timeout(900)
+    chk("tapping the floating island still buzzes", hbuzz() >= 1, hbuzz())
+    chk("and still opens it", near(hbox(), 318, 128), hbox())
+    hp.evaluate("window.__calls.length = 0")
+    hp.eval_on_selector("#island", "e=>e.click()"); hp.wait_for_timeout(900)
+    chk("tapping it shut still buzzes", hbuzz() >= 1, hbuzz())
+    chk("and still closes it", near(hbox(), 130, 38), hbox())
+    chk("the quiet-island page has no errors", len(herrs) == 0, herrs[:3])
+    hz.close()
+
     b.close()
 
 print("\n%d checks, %d failed" % (checks[0], len(fails)))

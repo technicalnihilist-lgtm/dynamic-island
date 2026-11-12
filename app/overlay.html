@@ -293,8 +293,25 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
   /* `force` is for a repeated state that carries new data (another call, another
      notification); a bare repeat of the state already on screen has nothing to
      redraw, and rebuilding it costs a fade, a re-raster of the window and a
-     restart of the call timer. */
-  function setState(next, force){
+     restart of the call timer.
+     `silent` is for a change that nobody's hand asked for. The buzz at the end
+     of this function belongs to a gesture: something was tapped and the phone
+     acknowledges it. But this page is driven from three other places that are
+     not a tap on it, and all three buzzed anyway - so the island vibrated for
+     things the user had not done to it. The app's own controls push their state
+     across the bridge (__setState), which the preview has already buzzed for a
+     few milliseconds earlier: one chip, two vibrations. A rebuilt page replays
+     the state it was showing when the renderer died, so Android reclaiming the
+     WebView vibrated the phone with nothing on screen to explain it. And every
+     state that ends itself - a notification's seven seconds running out, a
+     track stopping in another app, the caller hanging up - ran the collapse
+     through here and buzzed again, so the island going away quietly was felt
+     as a tap. None of those is new information and none of them is a gesture;
+     they now run the same morph in the same time to the same pixels with the
+     motor left alone. A tap on the island, a call arriving and a notification
+     arriving still buzz exactly as they did, because those are the three
+     things that really do arrive at the user. */
+  function setState(next, force, silent){
     if(!BASE[next]) next='idle';
     if(next===state && !force) return;
     if(next!==state){ if(state!=='idle') lastOpen=state; state=next; }
@@ -317,9 +334,10 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
         callNode=content.querySelector('[data-role="time"]');
         callTick=setInterval(paintCallTime,1000);
       }
-      if(state==='notif') notifT=setTimeout(function(){ setState('idle'); },7000);
+      /* the notification dismissing itself is not a tap on anything */
+      if(state==='notif') notifT=setTimeout(function(){ setState('idle',false,true); },7000);
     }, state==='idle'?130:110);
-    haptic(state==='idle'?'light':'medium');
+    if(!silent) haptic(state==='idle'?'light':'medium');
     try{ if(N && N.stateChanged) N.stateChanged(state); }catch(e){}
   }
 
@@ -371,7 +389,11 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
   });
 
   /* ---- hooks called from the native side ---- */
-  window.__setState=function(s){ setState(String(s)); };
+  /* the app's preview drives the floating island through here: the user picked
+     the state in the control room and already felt that buzz there, so this
+     page redraws without adding a second one. A rebuilt page replays its last
+     state through the same call, and that is not a gesture at all. */
+  window.__setState=function(s){ setState(String(s),false,true); };
   window.__setConfig=function(wm,hm,rm,b){
     if(typeof wm==='number') S.wm=wm;
     if(typeof hm==='number') S.hm=hm;
@@ -393,7 +415,9 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
   };
   window.__callEnd=function(){
     callData.real=false;
-    if(state==='incoming'||state==='ongoing') setState('idle');
+    /* the phone stopped ringing or the other side hung up: the island goes
+       away on its own, so it goes away without a buzz */
+    if(state==='incoming'||state==='ongoing') setState('idle',false,true);
   };
   /* A call and a notification own the island until they finish. The player is
      polled every 1.5 s, and every one of those polls used to hand the island
@@ -445,7 +469,8 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     if(rows) rows.classList.toggle('paused',!musicData.playing);
   };
   window.__musicEnd=function(){
-    if(musicData.real){ musicData.real=false; if(state==='music') setState('idle'); }
+    /* the player stopped somewhere else; nothing was tapped here */
+    if(musicData.real){ musicData.real=false; if(state==='music') setState('idle',false,true); }
   };
   window.__notify=function(app,title,text){
     if(CALL_OWNS_ISLAND[state]) return;   /* a call owns the island until it ends */
