@@ -263,8 +263,8 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
         '<span class="t1" data-role="time" style="flex:1">00:00</span>'+
         '<div class="wave"><i></i><i></i><i></i><i></i></div></div>'+
         '<div class="r2">'+
-        '<button class="ib" data-a="mute" aria-label="Mute">'+ic('mic')+'</button>'+
-        '<button class="ib" data-a="speaker" aria-label="Speaker">'+ic('spk')+'</button>'+
+        '<button class="ib" data-a="mute" aria-label="Mute" aria-pressed="false">'+ic('mic')+'</button>'+
+        '<button class="ib" data-a="speaker" aria-label="Speaker" aria-pressed="false">'+ic('spk')+'</button>'+
         '<button class="ib red" data-a="end" aria-label="End call">'+PHONE+'</button>'+
         '</div></div>';
     },
@@ -353,7 +353,20 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
         if(callData.real){ try{ if(N&&N.callAction) N.callAction('decline'); }catch(e){} callData.real=false; }
         setState('idle');
       }
-      else if(act==='mute'||act==='speaker'){ a.classList.toggle('act'); spH.v+=24; kick(); haptic(); }
+      else if(act==='mute'||act==='speaker'){
+        /* The only sign that Mute or Speaker is on is the button turning from
+           translucent to solid white, which is a colour and nothing else: a
+           screen-reader user could tap it all day and never learn whether it
+           took. The preview in the app has carried aria-pressed on these two
+           buttons since the first pass and flips it here as well; the page
+           that is actually on screen over other apps did not, so the same two
+           buttons reported their state in one island and were silent in the
+           other. Set from the same toggle that paints them, so what a blind
+           user hears is exactly what a sighted user sees. */
+        var on = a.classList.toggle('act');
+        a.setAttribute('aria-pressed', on ? 'true' : 'false');
+        spH.v+=24; kick(); haptic();
+      }
       else if(act==='play'){
         if(musicData.real){
           var want=musicData.playing?'pause':'play';

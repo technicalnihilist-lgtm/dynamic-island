@@ -819,6 +819,49 @@ with sync_playwright() as p:
     op.wait_for_timeout(1200)
     chk("a throttled floating island still shows the real call time",
         125 <= osecs() <= 128, osecs())
+
+    # ---- mute and speaker must say what they are -------------------------
+    # The only thing that changes when Mute or Speaker is tapped is the button
+    # going from translucent to solid white - a colour, and nothing else. The
+    # preview in the app has reported that state through aria-pressed since it
+    # was written; the page in the always-on-top window never did, so the same
+    # two buttons announced their state in one island and were silent in the
+    # other, and a screen-reader user tapping them over another app could not
+    # tell whether the tap had done anything.
+    opressed = lambda s: op.eval_on_selector(
+        '#content [data-a="%s"]' % s, "e=>e.getAttribute('aria-pressed')")
+    oact = lambda s: "act" in op.eval_on_selector(
+        '#content [data-a="%s"]' % s, "e=>e.className")
+    chk("the floating island's mute toggle starts unpressed", opressed("mute") == "false", opressed("mute"))
+    chk("the floating island's speaker toggle starts unpressed", opressed("speaker") == "false", opressed("speaker"))
+    op.click('#content [data-a="mute"]'); op.wait_for_timeout(250)
+    chk("tapping mute says it is pressed", opressed("mute") == "true", opressed("mute"))
+    chk("and the colour a sighted user sees agrees", oact("mute"))
+    chk("muting does not press the speaker", opressed("speaker") == "false", opressed("speaker"))
+    op.click('#content [data-a="mute"]'); op.wait_for_timeout(250)
+    chk("tapping mute again says it is not pressed", opressed("mute") == "false", opressed("mute"))
+    chk("and the colour goes back with it", not oact("mute"))
+    op.click('#content [data-a="speaker"]'); op.wait_for_timeout(250)
+    chk("tapping speaker says it is pressed", opressed("speaker") == "true", opressed("speaker"))
+    op.click('#content [data-a="speaker"]'); op.wait_for_timeout(250)
+    chk("and tapping it again says it is not", opressed("speaker") == "false", opressed("speaker"))
+
+    # the preview has to keep saying the same thing, or the two islands
+    # disagree about the state of the same two buttons again
+    op.click('#content [data-a="mute"]'); op.wait_for_timeout(250)   # pressed in both from here
+    pvc = b.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=3, color_scheme="dark")
+    pvc.add_init_script(MOCK)
+    vp = pvc.new_page()
+    vp.goto(URL); vp.wait_for_timeout(900)
+    vp.evaluate("window.__di.setState('ongoing')"); vp.wait_for_timeout(900)
+    vpressed = lambda s: vp.eval_on_selector(
+        '#content [data-a="%s"]' % s, "e=>e.getAttribute('aria-pressed')")
+    chk("the preview's mute toggle starts unpressed", vpressed("mute") == "false", vpressed("mute"))
+    vp.click('#content [data-a="mute"]'); vp.wait_for_timeout(250)
+    chk("the preview reports the press the same way", vpressed("mute") == "true", vpressed("mute"))
+    chk("so the two islands agree about mute", vpressed("mute") == opressed("mute"), (vpressed("mute"), opressed("mute")))
+    pvc.close()
+
     op.evaluate("window.__setState('idle')"); op.wait_for_timeout(1500)
 
     # ---- real music ------------------------------------------------------

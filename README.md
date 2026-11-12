@@ -74,8 +74,26 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (253 checks, all passing). The 1.7.16 entry is in
+reproduced, fixed and covered by `tools/test_app.py` (265 checks, all passing). The 1.7.16 entry is in
 the Android service rather than in the page, so the page suite is untouched by it.
+
+### 1.7.28 — optimisation slot 9
+
+1. **The floating island's Mute and Speaker buttons never told a screen reader whether they were on.**
+   The only thing that changes when either is tapped is the button going from translucent to solid
+   white — a colour, and nothing else; the icon does not change and no text appears. The preview in the
+   app has carried `aria-pressed` on those two buttons since the first pass and flips it on every tap,
+   so a screen-reader user hears "Mute, toggle button, not pressed" and then "pressed". `overlay.html`
+   — the page drawn in the window that sits above every other app, the one a user actually reaches for
+   during a call — had neither the attribute nor the update, so the same two buttons reported their
+   state in one island and were completely silent in the other, and a blind user tapping Mute over
+   another app could not tell whether the tap had done anything at all. Both buttons now start
+   unpressed and are set from the same `classList.toggle` that paints them, so what a screen reader
+   announces is exactly the state a sighted user sees. Nothing moves, nothing is added to the screen,
+   and the tap still buzzes and still wobbles the island exactly as before. Twelve new browser checks
+   press both buttons twice in the floating island and once in the preview and assert the reported
+   state follows the colour every time and that the two pages agree; eight of them fail against the
+   old page.
 
 ### 1.7.27 — optimisation slot 7
 
