@@ -74,8 +74,29 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (287 checks, all passing). The 1.7.16 entry is in
+reproduced, fixed and covered by `tools/test_app.py` (300 checks, all passing). The 1.7.16 entry is in
 the Android service rather than in the page, so the page suite is untouched by it.
+
+### 1.7.31 — optimisation slot 5
+
+1. **A call that was put away and brought back came back as a different call.** The island is 318 px
+   wide on a phone, so the first thing anyone does with it during a call is tap it away — and the tap
+   that brings it back rebuilt the call view from the template it is drawn from, which carries
+   `00:00` and a Mute and a Speaker button that have never been pressed. The call, meanwhile, was
+   still the same call: still muted, still three minutes old. Collapsing the island during a call and
+   opening it again therefore showed a timer that had restarted at zero and a Mute button that said
+   the call was not muted while the phone was still muting it — the island lying about the call it
+   was showing, on the one screen the user is looking at over another app. The elapsed time, the
+   mute and the speaker are the call's, not the nodes' that draw them: they are kept across a
+   rebuild now, the way a track's play/pause has always been kept in `playing`, and the clock is
+   painted the moment the view is built so it shows the real time at once instead of a second of
+   placeholder. They are cleared exactly where a call really begins and ends — a call arriving, one
+   being placed, Accept, Decline, End and the phone hanging up — so the next call starts clean.
+   Thirteen new browser checks drive both pages through it with a fake clock: mute a call, tap it
+   away, tap it back, and the timer is where it was and Mute is still pressed, in the preview and in
+   the floating island; then a new call arrives and starts at zero and unmuted. Both pages read
+   00:00 and "not pressed" before the change. Nothing on screen moves or changes for a call that is
+   not muted and not collapsed.
 
 ### 1.7.30 — optimisation slot 1
 

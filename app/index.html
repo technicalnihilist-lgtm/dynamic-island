@@ -540,6 +540,15 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   var lastOpen = 'music';          // BUG FIX: remember the real last state
   var callStart = 0, callNode = null, callTick = null, promoteT = null, swapT = null, swapToken = 0;
   var ti = 0, playing = true;
+  /* Mute and Speaker belong to the call, not to the two buttons that draw
+     them. They lived only in the DOM - `a.classList.toggle('act')` - and the
+     ongoing view is rebuilt from scratch on every state change, so a call that
+     was muted and then collapsed and opened again (a tap on the island, which
+     is how you get it out of the way) came back with Mute showing off while
+     the call was still muted, and the same for Speaker. The play/pause of a
+     track has always survived a rebuild because it lives in `playing`; these
+     two now live beside it. */
+  var muted = false, speakerOn = false;
   var tracks = [['Glass Hours','Neon Tide'],['Soft Focus','Lumen'],['Bounce Theory','Spring Club']];
 
   var P = {
@@ -572,8 +581,8 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
           '<span class="t1" data-role="time" style="flex:1">00:00</span>'+
           '<div class="wave" aria-hidden="true"><i></i><i></i><i></i><i></i></div></div>'+
         '<div class="r2">'+
-          '<button class="ib" data-a="mute" aria-label="Mute" aria-pressed="false">'+ic('mic')+'</button>'+
-          '<button class="ib" data-a="speaker" aria-label="Speaker" aria-pressed="false">'+ic('spk')+'</button>'+
+          '<button class="ib'+(muted?' act':'')+'" data-a="mute" aria-label="Mute" aria-pressed="'+(muted?'true':'false')+'">'+ic('mic')+'</button>'+
+          '<button class="ib'+(speakerOn?' act':'')+'" data-a="speaker" aria-label="Speaker" aria-pressed="'+(speakerOn?'true':'false')+'">'+ic('spk')+'</button>'+
           '<button class="ib red" data-a="end" aria-label="End call">'+PHONE+'</button>'+
         '</div></div>';
     },
@@ -609,8 +618,14 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   }
   function startTimers(){
     if(state === 'ongoing'){
-      callStart = Date.now();
+      /* The clock belongs to the call, not to this view: collapsing the island
+         and opening it again is the same call, so the elapsed time is kept and
+         painted here at once, instead of starting again at 00:00 and showing
+         the template's placeholder for the first second. It is zeroed where a
+         call really starts and ends - see setState() and the tap handler. */
+      if(!callStart) callStart = Date.now();
       callNode = content.querySelector('[data-role="time"]');
+      paintCallTime();
       callTick = setInterval(paintCallTime, 1000);
     } else if(state === 'calling'){
       /* BUG FIX: own handle, so it can never fire after you leave the state */
@@ -639,6 +654,11 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
     if(state !== 'idle') lastOpen = state;     /* BUG FIX: keep the true previous state */
     state = next;
     clearTimers();
+    /* A call arriving, or one being placed, is a new call: nothing carries
+       over from the last one - not its mute, not its speaker, not how long it
+       had been going. Only a collapse and re-open of the same call keeps them,
+       which is what callStart and the two flags above are for. */
+    if(next === 'incoming' || next === 'calling'){ callStart = 0; muted = false; speakerOn = false; }
 
     var token = ++swapToken;
     content.classList.remove('in');
@@ -832,10 +852,12 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
     var a = e.target.closest('[data-a]');
     if(a){
       var act = a.dataset.a;
-      if(act === 'accept'){ setState('ongoing'); }
-      else if(act === 'decline' || act === 'end'){ setState('idle'); }
+      if(act === 'accept'){ callStart = 0; muted = false; speakerOn = false; setState('ongoing'); }
+      else if(act === 'decline' || act === 'end'){ callStart = 0; muted = false; speakerOn = false; setState('idle'); }
       else if(act === 'mute' || act === 'speaker'){
-        var on = a.classList.toggle('act');
+        if(act === 'mute') muted = !muted; else speakerOn = !speakerOn;
+        var on = (act === 'mute') ? muted : speakerOn;
+        a.classList.toggle('act', on);
         a.setAttribute('aria-pressed', on ? 'true' : 'false');
         spH.v += 24; kick(); haptic('light');
       }

@@ -729,7 +729,7 @@ with sync_playwright() as p:
     tsecs = lambda: tp.eval_on_selector(
         '#content [data-role="time"]',
         "e=>{const p=e.textContent.split(':');return (+p[0])*60+(+p[1])}")
-    tp.click('#states .chip[data-s="incoming"]'); tp.wait_for_timeout(1400)
+    tp.click('#states .chip[data-s="incoming"]'); tp.wait_for_timeout(1300)
     tp.click('#island [data-a="accept"]'); tp.wait_for_timeout(700)
     chk("a call timer starts at zero", tsecs() == 0, tsecs())
     # one tick arrives, sixty-five seconds late
@@ -743,6 +743,33 @@ with sync_playwright() as p:
     tp.wait_for_timeout(200)
     chk("coming back to the app re-syncs a call timer that lost its ticks",
         365 <= tsecs() <= 370, tsecs())
+    # ---- a call put away and brought back is the same call ---------------
+    # The island is 318 px of a phone screen, so the first thing anyone does
+    # with it during a call is tap it away; tapping it back rebuilt the view
+    # from the template, which carries 00:00 and a pair of buttons that have
+    # never been pressed. The call is still the same call - its clock and its
+    # two toggles belong to it, not to the nodes that draw them.
+    tp.click('#content [data-a="mute"]'); tp.wait_for_timeout(250)
+    chk("muting a call presses Mute",
+        tp.eval_on_selector('#content [data-a="mute"]', "e=>e.getAttribute('aria-pressed')") == "true")
+    was_secs = tsecs()
+    tp.click("#island", position={"x": 12, "y": 10}); tp.wait_for_timeout(1300)
+    chk("tapping the island during a call collapses it", near(box_of(tp), 130, 38), box_of(tp))
+    tp.click("#island", position={"x": 12, "y": 10}); tp.wait_for_timeout(800)
+    chk("opening it again keeps the call's elapsed time",
+        was_secs > 0 and tsecs() >= was_secs, (was_secs, tsecs()))
+    chk("opening it again keeps the call muted",
+        tp.eval_on_selector('#content [data-a="mute"]', "e=>e.getAttribute('aria-pressed')") == "true",
+        tp.eval_on_selector('#content [data-a="mute"]', "e=>e.getAttribute('aria-pressed')"))
+    chk("and keeps the colour that goes with it",
+        "act" in tp.eval_on_selector('#content [data-a="mute"]', "e=>e.className"))
+    # a new call is a new call: clean clock, nothing pressed
+    tp.click('#states .chip[data-s="incoming"]'); tp.wait_for_timeout(1300)
+    tp.click('#island [data-a="accept"]'); tp.wait_for_timeout(800)
+    chk("a new call starts its clock at zero", tsecs() == 0, tsecs())
+    chk("and starts unmuted",
+        tp.eval_on_selector('#content [data-a="mute"]', "e=>e.getAttribute('aria-pressed')") == "false",
+        tp.eval_on_selector('#content [data-a="mute"]', "e=>e.getAttribute('aria-pressed')"))
     chk("the call timer page has no errors", len(terrs) == 0, terrs[:3])
     tim.close()
 
@@ -861,6 +888,30 @@ with sync_playwright() as p:
     chk("the preview reports the press the same way", vpressed("mute") == "true", vpressed("mute"))
     chk("so the two islands agree about mute", vpressed("mute") == opressed("mute"), (vpressed("mute"), opressed("mute")))
     pvc.close()
+
+    # ---- the same call, put away and brought back ------------------------
+    # mute is still pressed from the section above, and this island is the one
+    # actually on screen over other apps: a call that comes back saying it is
+    # not muted while the phone still is, with a clock that restarted, is the
+    # island lying about the call it is showing.
+    otime = lambda: op.eval_on_selector(
+        '#content [data-role="time"]',
+        "e=>{const p=e.textContent.split(':');return (+p[0])*60+(+p[1])}")
+    op.wait_for_timeout(1100)
+    obefore = otime()
+    op.click("#island", position={"x": 12, "y": 10}); op.wait_for_timeout(1300)
+    chk("tapping the floating island during a call collapses it", near(obox(), 130, 38), obox())
+    op.click("#island", position={"x": 12, "y": 10}); op.wait_for_timeout(800)
+    chk("bringing it back keeps the call's elapsed time",
+        obefore > 0 and otime() >= obefore, (obefore, otime()))
+    chk("bringing it back keeps the call muted", opressed("mute") == "true", opressed("mute"))
+    chk("and the colour a sighted user sees with it", oact("mute"))
+    # a call that arrives next is a new call, not this one
+    op.evaluate("window.__call('Ravi Kumar','Incoming call')"); op.wait_for_timeout(1500)
+    op.click("#content .btn.green"); op.wait_for_timeout(800)
+    chk("a new call starts its clock at zero", otime() == 0, otime())
+    chk("and starts unmuted", opressed("mute") == "false", opressed("mute"))
+    op.evaluate("window.__callEnd()"); op.wait_for_timeout(1500)
 
     op.evaluate("window.__setState('idle')"); op.wait_for_timeout(1500)
 

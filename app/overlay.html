@@ -251,6 +251,12 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
   /* when a real player is running these come from its media session */
   var musicData={ title:'Glass Hours', artist:'Neon Tide', playing:true, real:false };
   var ti=0, playing=true, callTick=null, callStart=0, callNode=null;
+  /* Mute and Speaker are the call's, not the two buttons' - see the preview.
+     They were kept only in the DOM, and this view is rebuilt from scratch on
+     every state change, so muting a real call and then putting the island away
+     and bringing it back (a tap, which is what the island is for) showed the
+     call unmuted while the phone was still muted. */
+  var muted=false, speakerOn=false;
   /* The call timer used to count its own ticks (secs++ once a second), which
      assumes the window is never throttled. It is: this page lives in a system
      overlay window, and Android throttles timers for a WebView it does not
@@ -302,8 +308,8 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
         '<span class="t1" data-role="time" style="flex:1">00:00</span>'+
         '<div class="wave"><i></i><i></i><i></i><i></i></div></div>'+
         '<div class="r2">'+
-        '<button class="ib" data-a="mute" aria-label="Mute" aria-pressed="false">'+ic('mic')+'</button>'+
-        '<button class="ib" data-a="speaker" aria-label="Speaker" aria-pressed="false">'+ic('spk')+'</button>'+
+        '<button class="ib'+(muted?' act':'')+'" data-a="mute" aria-label="Mute" aria-pressed="'+(muted?'true':'false')+'">'+ic('mic')+'</button>'+
+        '<button class="ib'+(speakerOn?' act':'')+'" data-a="speaker" aria-label="Speaker" aria-pressed="'+(speakerOn?'true':'false')+'">'+ic('spk')+'</button>'+
         '<button class="ib red" data-a="end" aria-label="End call">'+PHONE+'</button>'+
         '</div></div>';
     },
@@ -354,6 +360,10 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     if(!BASE[next]) next='idle';
     if(next===state && !force) return;
     if(next!==state){ if(state!=='idle') lastOpen=state; state=next; }
+    /* a call arriving, or one being placed, is a new call: its mute, its
+       speaker and its clock start empty. Putting the island away and bringing
+       it back is the same call, and keeps all three. */
+    if(next==='incoming'||next==='calling'){ callStart=0; muted=false; speakerOn=false; }
     if(callTick){ clearInterval(callTick); callTick=null; callNode=null; }
     if(notifT){ clearTimeout(notifT); notifT=null; }
     targets();
@@ -369,8 +379,12 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
       content.innerHTML=VIEWS[state]();
       if(state!=='idle') setTimeout(function(){ if(my===token) content.classList.add('in'); },20);
       if(state==='ongoing'){
-        callStart=Date.now();
+        /* the clock belongs to the call, not to this view: keep it and paint it
+           at once, so opening the island again mid-call shows the real elapsed
+           time instead of 00:00 and then a second of placeholder */
+        if(!callStart) callStart=Date.now();
         callNode=content.querySelector('[data-role="time"]');
+        paintCallTime();
         callTick=setInterval(paintCallTime,1000);
       }
       /* the notification dismissing itself is not a tap on anything */
@@ -386,10 +400,12 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
       var act=a.dataset.a;
       if(act==='accept'){
         if(callData.real){ try{ if(N&&N.callAction) N.callAction('accept'); }catch(e){} callData.real=false; }
+        callStart=0; muted=false; speakerOn=false;
         setState('ongoing');
       }
       else if(act==='decline'||act==='end'){
         if(callData.real){ try{ if(N&&N.callAction) N.callAction('decline'); }catch(e){} callData.real=false; }
+        callStart=0; muted=false; speakerOn=false;
         setState('idle');
       }
       else if(act==='mute'||act==='speaker'){
@@ -402,7 +418,9 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
            buttons reported their state in one island and were silent in the
            other. Set from the same toggle that paints them, so what a blind
            user hears is exactly what a sighted user sees. */
-        var on = a.classList.toggle('act');
+        if(act==='mute') muted=!muted; else speakerOn=!speakerOn;
+        var on = (act==='mute') ? muted : speakerOn;
+        a.classList.toggle('act', on);
         a.setAttribute('aria-pressed', on ? 'true' : 'false');
         spH.v+=24; kick(); haptic();
       }
@@ -467,6 +485,8 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
   };
   window.__callEnd=function(){
     callData.real=false;
+    /* the call is over: the next one starts with a clean clock and no mute */
+    callStart=0; muted=false; speakerOn=false;
     /* the phone stopped ringing or the other side hung up: the island goes
        away on its own, so it goes away without a buzz */
     if(state==='incoming'||state==='ongoing') setState('idle',false,true);
