@@ -437,6 +437,20 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
          and spend no frames doing it */
       if(reduceMotion()){ snapAll(); return; }
       lastT = 0; raf = requestAnimationFrame(frame);
+      /* The backstop below exists for one case: frames that stop arriving, so
+         the loop never gets to settle itself. It was armed by applyTargets(),
+         which is the path a state change takes - but not by kick(), and the
+         small wobbles (Mute, Speaker, play, next, the Bounce slider, the boot
+         nudge) reach the loop through kick() alone. Those are exactly the ones
+         that can be caught out: they last a third of a second, and a screen
+         going off, a WebView throttled in the background or a floating window
+         the system has stopped drawing in that third of a second used to leave
+         the island at whatever in-between size the last frame drew - 128.76 px
+         instead of the 128 px it had settled on - with no loop left to run and
+         nothing armed to put it right. Armed here, where every animation
+         starts; a wobble that settles normally disarms it from frame(), which
+         is what keeps it from ever cutting the next one short. */
+      armSettle();
     }
   }
   /* if frames are throttled (backgrounded tab, heavy device) settle anyway

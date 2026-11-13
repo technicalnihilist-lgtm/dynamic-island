@@ -184,6 +184,19 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
          for no motion, put it there without spending a single frame */
       if(reduceMotion()){ snapAll(); return; }
       lastT=0; raf=requestAnimationFrame(frame);
+      /* The backstop below is for frames that stop arriving, so the loop never
+         settles itself. Only morph() - the state-change path - used to arm it,
+         and the tap wobbles (Mute, Speaker, play, next, a tap on the island)
+         reach the loop through kick() alone. This page lives in a system
+         overlay window, which Android throttles far harder than an app: a
+         window that stops being drawn three frames into a wobble left the
+         island at that in-between size for good, with no loop left running and
+         nothing armed to put it right - and, because the settle is also what
+         tells the service to shrink the window back, a native window left
+         bigger than the island it holds. Armed where every animation starts; a
+         wobble that settles normally disarms it from frame(), so it can never
+         cut the next one short. */
+      armSettle();
     }
   }
   /* one place decides how a new target is reached: a bounce for everyone else,

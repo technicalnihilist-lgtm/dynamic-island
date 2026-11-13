@@ -74,8 +74,30 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (281 checks, all passing). The 1.7.16 entry is in
+reproduced, fixed and covered by `tools/test_app.py` (287 checks, all passing). The 1.7.16 entry is in
 the Android service rather than in the page, so the page suite is untouched by it.
+
+### 1.7.30 — optimisation slot 1
+
+1. **A tap on the island could leave it stuck at an in-between size.** The island carries a 1.5 s
+   backstop — `armSettle()` — that exists for exactly one case: frames that stop arriving, so the
+   render loop never gets to settle itself and the island would be stranded wherever the last frame
+   drew it. It was armed by `applyTargets()`, which is the path a *state change* takes. The small
+   wobbles — Mute, Speaker, play, next, the Bounce slider, the boot nudge, a tap on the island
+   itself — reach the loop through `kick()` alone, and `kick()` armed nothing. Those last a third of
+   a second, which is long enough to be caught out: a screen going off, a WebView throttled in the
+   background, or the floating island's own overlay window — which Android throttles harder than it
+   does an app — stopping being drawn in that third of a second left the island at 128.76 px instead
+   of the 128 px it had settled on, with no loop left to run and nothing armed to put it right. It
+   stayed that way until the next state change. In the floating island it also left the native
+   window at the size it had grown to, because the settle is what tells the service to shrink it
+   back. The net is armed where every animation starts now, in `kick()`, in both pages, and a wobble
+   that settles normally still disarms it from the frame loop — so it cannot cut the next animation
+   short, which is what 1.7.23 was about; `kick()` replacing the old timer also means a nudge can no
+   longer inherit a morph's timer at all. Six new browser checks hand-drive the frames, stop feeding
+   them three frames into a tap and wait past the net, on both pages: the island is back on its
+   target every time, and was left at 128.76 px before the change. Nothing moves differently while
+   frames are arriving, and no pixel changes.
 
 ### 1.7.29 — optimisation slot 10
 

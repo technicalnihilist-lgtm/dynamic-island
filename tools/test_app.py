@@ -1194,7 +1194,7 @@ with sync_playwright() as p:
       }"""
     SETTLE_WOBBLE = """function(){
         var b = document.querySelector('[data-a="next"]');
-        if(b) b.click();                 /* a 55 px/s nudge; arms nothing itself */
+        if(b) b.click();                 /* a 55 px/s nudge */
         window.__rafRun(16.7, 1);        /* one frame of it */
         return parseFloat(document.getElementById('island').style.width);
       }"""
@@ -1204,26 +1204,87 @@ with sync_playwright() as p:
         page.wait_for_timeout(250)       # the 110 ms content swap has landed
         return page.evaluate(SETTLE_WOBBLE)
 
+    # The nudge arms the net itself now (kick() does it, so a wobble can never be
+    # left stranded), which means the net that fires belongs to the nudge and not
+    # to the morph that came before it: kick() replaces the old timer instead of
+    # inheriting it, so the morph's timer cannot cut the nudge short at all. What
+    # is left to check is the timing that guarantees it - nothing snaps the nudge
+    # before its own 1.5 s, and once the frames really have stopped the island is
+    # put on its target instead of being left at 318.76 px for good.
     sp = fast.new_page()
     sp.goto(URL); sp.wait_for_timeout(300)
     mid = settle_race(sp)
-    sp.wait_for_timeout(1700)            # the stale net would fire inside this
+    sp.wait_for_timeout(1000)            # short of the net
+    early = sp.evaluate("parseFloat(document.getElementById('island').style.width)")
+    sp.wait_for_timeout(800)             # past it
     after = sp.evaluate("parseFloat(document.getElementById('island').style.width)")
     chk("the nudge had really started to move the island", abs(mid - 318) > 0.2, mid)
-    chk("a nudge just after a morph is not snapped away by the old settle timer",
-        abs(after - mid) < 0.05, (mid, after))
+    chk("a nudge is not snapped away before the net has had its 1.5 s",
+        abs(early - mid) < 0.05, (mid, early))
+    chk("a nudge whose frames stopped is put on its target, not left in between",
+        abs(after - 318) < 0.05, (mid, after))
     sp.close()
 
     osp = fast.new_page()
     osp.goto(OVERLAY_URL); osp.wait_for_timeout(300)
     omid = settle_race(osp)
-    osp.wait_for_timeout(1700)
+    osp.wait_for_timeout(1000)
+    oearly = osp.evaluate("parseFloat(document.getElementById('island').style.width)")
+    osp.wait_for_timeout(800)
     oafter = osp.evaluate("parseFloat(document.getElementById('island').style.width)")
     chk("the floating island's nudge had really started to move it",
         abs(omid - 318) > 0.2, omid)
-    chk("the floating island is not snapped away by the old settle timer either",
-        abs(oafter - omid) < 0.05, (omid, oafter))
+    chk("the floating island's nudge is not snapped away before its 1.5 s",
+        abs(oearly - omid) < 0.05, (omid, oearly))
+    chk("a floating nudge whose frames stopped is put on its target too",
+        abs(oafter - 318) < 0.05, (omid, oafter))
     osp.close()
+
+    # ---- a tap wobble must never be left stranded --------------------------
+    # Every one of these - Mute, Speaker, play, next, the Bounce slider, the boot
+    # nudge - starts its animation through kick() alone, and kick() used to arm
+    # nothing: the 1.5 s net was armed by applyTargets(), which is the path a
+    # state change takes. So a wobble caught by a screen going off, by a WebView
+    # throttled in the background or by an overlay window the system stopped
+    # drawing in its third of a second was left at whatever size the last frame
+    # drew, with no loop left to run and nothing armed to put it right. Sample a
+    # wobble three frames in, stop feeding it frames and wait past the net: the
+    # island has to be back on the size it had settled on.
+    STRAND = """function(){
+        var api = window.__di ? window.__di.setState : window.__setState;
+        api('music');
+        window.__rafRun(16.7, 900);      /* long enough for the morph to settle */
+        return 1;
+      }"""
+    WOBBLE = """function(){
+        document.querySelector('[data-a=\"play\"]').click();
+        window.__rafRun(16.7, 3);
+        return parseFloat(document.getElementById('island').style.height);
+      }"""
+
+    def stranded(page):
+        page.evaluate(STRAND)
+        page.wait_for_timeout(250)
+        mid = page.evaluate(WOBBLE)
+        page.wait_for_timeout(1800)      # no frames arrive; the net is all there is
+        return mid, page.evaluate("parseFloat(document.getElementById('island').style.height)")
+
+    s2 = fast.new_page()
+    s2.goto(URL); s2.wait_for_timeout(300)
+    mid, end = stranded(s2)
+    chk("the tap had really moved the island off its settled height",
+        abs(mid - 128) > 0.2, mid)
+    chk("a tap whose frames stopped is not left stranded off its size",
+        abs(end - 128) < 0.05, (mid, end))
+    s2.close()
+
+    os2 = fast.new_page()
+    os2.goto(OVERLAY_URL); os2.wait_for_timeout(300)
+    omid, oend = stranded(os2)
+    chk("the floating island's tap had really moved it too", abs(omid - 128) > 0.2, omid)
+    chk("a floating tap whose frames stopped is not left stranded either",
+        abs(oend - 128) < 0.05, (omid, oend))
+    os2.close()
 
     fast.close()
 
