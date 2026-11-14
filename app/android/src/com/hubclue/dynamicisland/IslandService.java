@@ -75,6 +75,9 @@ public class IslandService extends Service {
     /* the incoming call's own answer / decline actions, taken from the phone's notification */
     private PendingIntent callAnswer, callDecline, callOpen;
     private String[] pendingCall;
+    /* who the live call is from, so the phone re-posting its own notification
+       for the same call is not mistaken for a second call */
+    private String callName = "";
     /* A call the phone announced is live until it ends, and it owns the island
        for all of that time - not only while the island happens to be drawing
        it. `currentState` is the state on screen, and the island is 318 px of a
@@ -613,12 +616,36 @@ public class IslandService extends Service {
 
     private void applyCall(String name, String label,
                            PendingIntent answer, PendingIntent decline, PendingIntent open) {
+        String n = name == null ? "Unknown" : name;
+        String l = label == null ? "Incoming call" : label;
+        /* The phone posts its call notification again every time the call
+           changes - answered, held, the other side picked up - and each of
+           those used to be announced here as a new call: currentState was put
+           back to "incoming" and the page was told to draw the ringing view
+           again. So answering a call in the island put it straight back to
+           green and red buttons for a call that was already connected, and
+           the app's preview, which mirrors currentState, was told the same
+           thing. A call that is live is the same call whatever the phone says
+           about it; what is worth taking from a repeat is the newest label and
+           the newest answer / decline actions. The page is told too, and
+           ignores it for a call it is already drawing - or for one the user
+           has put away, which is a gesture this must not undo. */
+        boolean sameCall = callActive
+                && (n.equals(callName) || "ongoing".equals(currentState)
+                    || "calling".equals(currentState));
         callAnswer = answer;
         callDecline = decline;
         callOpen = open;
-        pendingCall = new String[]{
-                name == null ? "Unknown" : name,
-                label == null ? "Incoming call" : label};
+        if (sameCall) {
+            if (pendingCall != null) pendingCall[1] = l;
+            if (pageReady) {
+                eval("window.__call&&window.__call("
+                        + JSONObject.quote(n) + "," + JSONObject.quote(l) + ")");
+            }
+            return;
+        }
+        callName = n;
+        pendingCall = new String[]{n, l};
         currentState = "incoming";
         callActive = true;
         if (!pageReady) return;
@@ -632,6 +659,7 @@ public class IslandService extends Service {
         callDecline = null;
         callOpen = null;
         pendingCall = null;
+        callName = "";
         callActive = false;
         if ("incoming".equals(currentState) || "ongoing".equals(currentState)) currentState = "idle";
         eval("window.__callEnd&&window.__callEnd()");

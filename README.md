@@ -74,9 +74,32 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (318 checks, all passing). The 1.7.16, 1.7.32,
-1.7.33 and 1.7.35 entries are in the Android service rather than in the page, so only the contract they
-depend on is covered by the page suite.
+reproduced, fixed and covered by `tools/test_app.py` (334 checks, all passing). The 1.7.16, 1.7.32,
+1.7.33, 1.7.35 and 1.7.36 entries are in the Android service as well as in the page, so the service half
+is covered only by the contract the page depends on.
+
+### 1.7.36 — optimisation slot 10
+
+1. **Answering a call in the island put the island straight back to ringing.** A phone does not post one
+   notification per call; it posts the call notification again every time the call changes — the moment
+   it is answered, when it goes on hold, when the other side picks up — and `NotifListener` handed every
+   one of those to `IslandService.showCall`, which announced it as a brand new call: `currentState` went
+   back to `incoming` and the floating page was told to draw the ringing view again. So the green button
+   worked, the call connected, and the island went back to a green and a red button and the words
+   "Incoming call…" for a call that was already up — with the clock and the mute it had been showing
+   thrown away, because a new call starts those empty. Tapping red then hung up a call the user had
+   already answered, or nothing at all. The app's preview, which mirrors `currentState` when you come
+   back, was told the same lie. A call that is live is the same call whatever the phone says about it:
+   the service now recognises the announcement of a call it is already showing and takes only the newest
+   label and the newest answer / decline actions from it, and the page does the same — a call it is
+   already drawing keeps its view, its clock and its mute, and a call the user has put away stays put
+   away, because the phone confirming a call is not a gesture and putting the island away is one. A
+   ringing call whose label changes is now updated in place instead of being torn down and faded back
+   in. Sixteen new browser checks drive it: ring, answer, mute, then let the phone post the same call
+   again — the island is still the call in progress, on the same pixels, with its clock and its mute;
+   put it away and post the call again — it stays away; end it and the next call is a new call, at zero
+   and unmuted. The page failed five of those before the change (312×88, ringing, no timer, no mute).
+   Nothing on screen moves or changes for a call that is announced once.
 
 ### 1.7.35 — optimisation slot 6
 

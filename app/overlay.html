@@ -497,8 +497,27 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     settledW=Math.round(spW.x); settledH=Math.round(spH.x);
     resize(settledW, settledH);
   };
+  /* The phone posts its call notification again every time the call changes -
+     the moment it is answered, put on hold, picked up on the other side - and
+     every one of those arrived here as a brand new call. So answering a call
+     in the island and then having the phone confirm it flipped the island
+     straight back to "Incoming call…" with the green and red buttons on a call
+     that was already connected, and threw away the clock and the mute it had
+     been showing: the one screen the user is looking at, over another app,
+     lying about the call it is drawing. A call that is live is the same call;
+     what a repeat announcement can carry is a newer label, and newer actions,
+     which the tap handler takes from the service rather than from here.
+     A call the user has put away stays put away: reopening it is the one thing
+     1.7.33 settled, and the phone confirming the call is not a gesture. */
   window.__call=function(name,label){
-    callData={ name:(name||'Unknown'), label:(label||'Incoming call'), real:true };
+    var n=(name||'Unknown'), l=(label||'Incoming call');
+    if(callLive && (n===callData.name || state==='ongoing' || state==='calling')){
+      callData.label=l;
+      var t2=content.querySelector('.col .t2');
+      if(state==='incoming' && t2) t2.textContent=l;
+      return;
+    }
+    callData={ name:n, label:l, real:true };
     callLive=true;
     setState('incoming', true);
   };

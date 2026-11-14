@@ -932,6 +932,58 @@ with sync_playwright() as p:
 
     op.evaluate("window.__setState('idle')"); op.wait_for_timeout(1500)
 
+    # ---- the phone re-posting its call notification is the same call -----
+    # A phone posts its call notification again every time the call changes:
+    # the moment it is answered, when it is put on hold, when the other side
+    # picks up. Each of those arrived here as a brand new call, so answering a
+    # call in the island and having the phone confirm it flipped the island
+    # back to "Incoming call…" with green and red buttons on a call that was
+    # already connected, and threw away the clock and the mute it had been
+    # showing. The one screen the user is looking at, over another app, lying
+    # about the call it is drawing. A call that is live is the same call; a
+    # repeat can only carry a newer label.
+    op.evaluate("window.__call('Ravi Kumar','Incoming call')"); op.wait_for_timeout(1400)
+    chk("a call from the phone is ringing on the island", near(obox(), 312, 88), obox())
+    chk("with the buttons to answer it",
+        op.evaluate("!!document.querySelector('#content [data-a=\"accept\"]')"))
+    op.evaluate("window.__t2 = document.querySelector('#content .col .t2')")
+    op.evaluate("window.__call('Ravi Kumar','Calling you back…')"); op.wait_for_timeout(700)
+    chk("a call still ringing follows the label the phone gives it",
+        op.eval_on_selector("#content .col .t2", "e=>e.textContent") == "Calling you back…",
+        op.eval_on_selector("#content .col .t2", "e=>e.textContent"))
+    chk("and the island is not torn down and faded back in to say so",
+        op.evaluate("document.querySelector('#content .col .t2') === window.__t2"))
+    chk("and is still the ringing view", near(obox(), 312, 88), obox())
+    op.click("#content .btn.green"); op.wait_for_timeout(600)
+    op.click('#content [data-a="mute"]'); op.wait_for_timeout(300)
+    op.wait_for_timeout(1200)
+    ringing_time = otime()
+    chk("answering it starts the call clock", ringing_time > 0, ringing_time)
+    chk("and it is a call in progress", near(obox(), 318, 118), obox())
+    op.evaluate("window.__call('Ravi Kumar','Call in progress')"); op.wait_for_timeout(1300)
+    chk("the phone confirming the call does not put the island back to ringing",
+        not op.evaluate("!!document.querySelector('#content [data-a=\"accept\"]')"))
+    chk("and the clock it had is kept", otime() >= ringing_time, (ringing_time, otime()))
+    chk("and the mute it had is kept", opressed("mute") == "true", opressed("mute"))
+    chk("and it is still the call in progress", near(obox(), 318, 118), obox())
+    # a call the user put away stays put away - the phone confirming it is not
+    # a gesture, and 1.7.33 settled that putting the island away is one
+    op.click("#island", position={"x": 12, "y": 10}); op.wait_for_timeout(1300)
+    op.evaluate("window.__call('Ravi Kumar','Call in progress')"); op.wait_for_timeout(1200)
+    chk("a call the user put away is not reopened by the phone",
+        near(obox(), 130, 38), obox())
+    op.click("#island", position={"x": 12, "y": 10}); op.wait_for_timeout(1300)
+    chk("opening it again still shows the call it was showing",
+        near(obox(), 318, 118) and opressed("mute") == "true", (obox(), opressed("mute")))
+    # and the call after this one really is a new call
+    op.evaluate("window.__callEnd()"); op.wait_for_timeout(1400)
+    op.evaluate("window.__call('Priya S','Incoming call')"); op.wait_for_timeout(1400)
+    chk("the call after it is a new call", near(obox(), 312, 88), obox())
+    op.click("#content .btn.green"); op.wait_for_timeout(700)
+    chk("and starts its clock at zero", otime() == 0, otime())
+    chk("and starts unmuted", opressed("mute") == "false", opressed("mute"))
+    op.evaluate("window.__callEnd()"); op.wait_for_timeout(1400)
+
     # ---- a call that is still running keeps the island when it is put away --
     # The island is 318 px of a phone screen, so the first thing anyone does
     # with it during a call is tap it away. That left this page's idea of the
