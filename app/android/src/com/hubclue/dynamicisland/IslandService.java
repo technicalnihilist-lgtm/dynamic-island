@@ -96,6 +96,11 @@ public class IslandService extends Service {
     private HandlerThread mediaThread;
     private Handler mediaIo;
     private boolean mediaBusy = false;
+    /* true while the loop is on the lazy cadence only because a call or a
+       notification owns the island - the one case Bridge.stateChanged has to
+       take a read early for. Written on the main thread, read from the bridge
+       thread in stateChanged. */
+    private volatile boolean mediaParked = false;
     private volatile boolean mediaStopped = false;
     private static boolean pendingLock = true;
     private static boolean hasPendingLock = false;
@@ -319,6 +324,25 @@ public class IslandService extends Service {
             scheduleMediaPoll();
             return;
         }
+        /* The same argument one state further on. A ringing call, a call in
+           progress and a notification own the island until they finish, and
+           applyMedia refuses to push the player over them - so for the whole
+           length of a call, and for the seven seconds of a notification, the
+           answer this loop fetches is thrown away unread. The read still ran
+           at the playing cadence all the same: getActiveSessions plus a
+           getPlaybackState for every session in it, every 1.5 s, four to six
+           binder round trips into system_server for a picture nothing on
+           screen is waiting for. It parks on the lazy cadence instead, the
+           way a detached window already does, and stateChanged() takes the
+           read the moment the island is free again - so the player is back on
+           screen in 400 ms of a call ending rather than at the end of a park. */
+        if (!islandFree()) {
+            mediaParked = true;
+            mediaPollDelay = LAZY_POLL_MS;
+            scheduleMediaPoll();
+            return;
+        }
+        mediaParked = false;
         if (mediaBusy) return;                  /* a read is already in flight */
         final String knownPkg = mediaPkg;
         if (mediaIo == null) {                  /* no thread to be had: read here */
@@ -404,6 +428,17 @@ public class IslandService extends Service {
         return snap;
     }
 
+    /**
+     * Whether the player is allowed to be on screen right now. Idle is where a
+     * track is restored, music is where it is already up; a call arriving, a
+     * call being placed, a call in progress and a notification all own the
+     * island until they finish, and the player waits its turn (see applyMedia).
+     */
+    private boolean islandFree() {
+        String s = currentState;
+        return "idle".equals(s) || "music".equals(s);
+    }
+
     /** the answer, applied on the main thread */
     private void applyMedia(MediaSnapshot snap) {
         if (snap == null || snap.status == MEDIA_FAILED) {
@@ -447,8 +482,7 @@ public class IslandService extends Service {
            ringing - and it cost an eval into the WebView on every tick for
            as long as they were up. Idle is the only state that needs the
            player restored, so it is the only one that gets a push. */
-        boolean islandFree = "idle".equals(currentState) || "music".equals(currentState);
-        if (islandFree && (!sig.equals(lastMediaSig) || !"music".equals(currentState))) {
+        if (islandFree() && (!sig.equals(lastMediaSig) || !"music".equals(currentState))) {
             lastMediaSig = sig;
             eval("window.__music&&window.__music("
                     + JSONObject.quote(snap.title) + ","
@@ -848,7 +882,28 @@ public class IslandService extends Service {
         /** the floating island moved on its own (a tap, a notification) */
         @JavascriptInterface
         public void stateChanged(String state) {
-            if (state != null) currentState = state;
+            if (state == null) return;
+            currentState = state;
+            /* The island may have just been given back to the player - the
+               caller hung up, a notification's seven seconds ran out - and the
+               media loop is parked on the lazy cadence for as long as something
+               else owns it. Take the read now instead of waiting out that park,
+               so the track is back on screen 400 ms after a call ends and not
+               up to six seconds later. The flag, not the state before this
+               call, is what says so: the service marks a call ended before the
+               page gets to report it, so "what it was" has already been
+               overwritten by the time the report arrives. An ordinary tap
+               between idle and music parks nothing and takes no read here. */
+            if (!islandFree() || !mediaParked) return;
+            ui.post(new Runnable() {
+                @Override
+                public void run() {
+                    if (!islandFree() || !attached || !pageReady || !screenOn) return;
+                    mediaParked = false;
+                    ui.removeCallbacks(mediaTick);
+                    ui.postDelayed(mediaTick, 400);
+                }
+            });
         }
 
         @JavascriptInterface

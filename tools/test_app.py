@@ -835,6 +835,22 @@ with sync_playwright() as p:
     op.wait_for_timeout(1600)
     chk("ending the call collapses the island", near(obox(), 130, 38), obox())
 
+    # The service parks its media read while a call or a notification owns the
+    # island - the player cannot be drawn over them, so the answer would be
+    # thrown away - and the only thing that can tell it the island is free
+    # again is this page, through stateChanged. Every transition therefore has
+    # to reach native, the one that ends a call included: a state that is
+    # taken and never reported leaves the loop parked on the lazy cadence and
+    # the track off the island until the next park expires.
+    op.evaluate("window.__calls.length = 0")
+    op.evaluate("window.__setState('music')"); op.wait_for_timeout(300)
+    op.evaluate("window.__call('Ravi Kumar','Incoming call')"); op.wait_for_timeout(300)
+    op.evaluate("window.__callEnd()"); op.wait_for_timeout(300)
+    chk("the overlay reports every state it takes to native, in order",
+        op.evaluate("window.__calls.filter(c=>c[0]==='stateChanged').map(c=>c[1])")
+        == ["music", "incoming", "idle"],
+        op.evaluate("window.__calls.filter(c=>c[0]==='stateChanged').map(c=>c[1])"))
+
     # the floating island carries the same tick counter in a window Android
     # throttles even harder than the app's own
     op.evaluate("window.__setState('ongoing')"); op.wait_for_timeout(500)

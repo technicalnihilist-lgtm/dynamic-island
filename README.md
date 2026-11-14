@@ -74,8 +74,24 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (300 checks, all passing). The 1.7.16 entry is in
-the Android service rather than in the page, so the page suite is untouched by it.
+reproduced, fixed and covered by `tools/test_app.py` (301 checks, all passing). The 1.7.16 and 1.7.32
+entries are in the Android service rather than in the page, so only the contract they depend on is
+covered by the page suite.
+
+### 1.7.32 — optimisation slot 2
+
+1. **The player was read every 1.5 s through a whole call to draw something the island was not
+   allowed to draw.** A ringing call, a call in progress and a notification own the island until they
+   finish, and `applyMedia` already refused to push the player over them — but only the *push* was
+   dropped; the *read* still ran at the playing cadence, four to six binder round trips into
+   `system_server` every 1.5 s for as long as a track was playing, for the entire length of a call or
+   the seven seconds of a notification. That is the same argument the detached window already gets
+   (`pollMedia` parks on the lazy cadence when nothing can see the island); the loop now parks on it
+   while something else owns the island too, and `stateChanged` takes the read the moment the island
+   is free again — so a track is back on screen 400 ms after a call ends, and no binder traffic is
+   spent in the meantime. Nothing on screen changes; the one new browser check pins the contract it
+   leans on, that the overlay reports every state it takes to native, in order, the one that ends a
+   call included.
 
 ### 1.7.31 — optimisation slot 5
 
