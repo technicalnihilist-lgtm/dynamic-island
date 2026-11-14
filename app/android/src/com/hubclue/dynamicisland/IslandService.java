@@ -89,7 +89,10 @@ public class IslandService extends Service {
     private volatile boolean callActive = false;
 
     /* real media, read straight out of the player's media session */
-    private MediaController media;
+    /* written on the main thread by applyMedia(), read from the media thread by
+       the transport buttons - so it is volatile, or a press could act on a
+       controller the poll has already replaced */
+    private volatile MediaController media;
     private String mediaPkg = "";
     /* what the island was last told about the player, so an unchanged track is
        not pushed into the WebView again on the next poll */
@@ -104,9 +107,11 @@ public class IslandService extends Service {
     private boolean screenOn = true;
     private long mediaPollDelay = LAZY_POLL_MS;
     /* the media read is binder traffic, so it runs on its own thread and only
-       its answer comes back to the main thread */
+       its answer comes back to the main thread. The transport buttons are
+       posted to the same thread (see Bridge.media), and that post comes in from
+       the JS bridge thread, so the handle is volatile. */
     private HandlerThread mediaThread;
-    private Handler mediaIo;
+    private volatile Handler mediaIo;
     private boolean mediaBusy = false;
     /* true while the loop is on the lazy cadence only because a call or a
        notification owns the island - the one case Bridge.stateChanged has to
@@ -958,12 +963,36 @@ public class IslandService extends Service {
         @JavascriptInterface
         public void media(String what) {
             final String a = what == null ? "" : what;
-            ui.post(new Runnable() {
+            /* Play, pause, next and previous used to be fired from the main
+               thread: the bridge left its own thread for that one, and then made
+               two binder calls into whichever app owns the session -
+               getTransportControls() and then play(), pause(), skipToNext() or
+               skipToPrevious(). That is the same thread drawing the island's
+               springs, and the tap that asks for the action is also the tap that
+               starts the 24 px wobble, so a player that took a moment to answer
+               (a cold Spotify, a video app coming back from the background)
+               stuttered the one animation the user had just asked for. The
+               media *read* was moved off this thread for exactly this reason;
+               the write goes the same way now, onto the same thread, and a tap
+               only pays for the frame it draws. Nothing waits on the answer
+               either way - the icon has already flipped optimistically, and the
+               next poll corrects it if the player disagreed. With no media
+               thread to be had it still runs on the main thread, which is where
+               it has always run. */
+            Runnable send = new Runnable() {
                 @Override
                 public void run() {
                     mediaAction(a);
                 }
-            });
+            };
+            Handler io = mediaIo;
+            if (io != null) {
+                try {
+                    if (io.post(send)) return;
+                } catch (Throwable ignored) {
+                }
+            }
+            ui.post(send);
         }
 
         @JavascriptInterface

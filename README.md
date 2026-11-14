@@ -74,9 +74,26 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (318 checks, all passing). The 1.7.16, 1.7.32 and
-1.7.33 entries are in the Android service rather than in the page, so only the contract they depend on
-is covered by the page suite.
+reproduced, fixed and covered by `tools/test_app.py` (318 checks, all passing). The 1.7.16, 1.7.32,
+1.7.33 and 1.7.35 entries are in the Android service rather than in the page, so only the contract they
+depend on is covered by the page suite.
+
+### 1.7.35 — optimisation slot 6
+
+1. **Pressing Play on the floating island made the player answer on the thread drawing the island.** The
+   page's transport buttons crossed the bridge with `Native.media(...)`, and the service posted that onto
+   the main thread before doing anything with it — and then made two blocking binder calls there:
+   `getTransportControls()` and then `play()`, `pause()`, `skipToNext()` or `skipToPrevious()` into
+   whichever app owns the session. That is the same thread that runs the island's spring loop, and the
+   tap that asks for the action is also the tap that starts the 24 px wobble, so a player that took a
+   moment to answer — a cold Spotify, a video app coming back from the background, a busy
+   `system_server` — stuttered the one animation the user had just asked for. The media *read* was moved
+   off this thread for exactly this argument; the write goes the same way now, onto the same
+   `island-media` thread, so a tap only pays for the frame it draws. Nothing waits on the answer either
+   way: the icon has already flipped optimistically in the page and the next poll corrects it if the
+   player disagreed. The controller the press acts on is read across threads now, so it is `volatile`,
+   and with no media thread to be had the action still runs on the main thread, which is where it has
+   always run. No pixels change — this is a thread hop, not a redraw.
 
 ### 1.7.34 — optimisation slot 5
 
