@@ -29,7 +29,8 @@ window.Native = {
   setOverlayPosition: function(){ rec('setOverlayPosition', arguments); },
   setOverlayLock: function(){ rec('setOverlayLock', arguments); },
   media: function(){ rec('media', arguments); },
-  callAction: function(){ rec('callAction', arguments); }
+  callAction: function(){ rec('callAction', arguments); },
+  callEnded: function(){ rec('callEnded', arguments); }
 };
 """
 
@@ -930,6 +931,55 @@ with sync_playwright() as p:
     op.evaluate("window.__callEnd()"); op.wait_for_timeout(1500)
 
     op.evaluate("window.__setState('idle')"); op.wait_for_timeout(1500)
+
+    # ---- a call that is still running keeps the island when it is put away --
+    # The island is 318 px of a phone screen, so the first thing anyone does
+    # with it during a call is tap it away. That left this page's idea of the
+    # island at "idle" - and idle is one of the two states the player and a
+    # notification are allowed to take. So the next media poll, which runs
+    # every 1.5 s for as long as something is playing, reopened the collapsed
+    # island as the music view: a call that was still ringing was gone from
+    # the island, with no timer and no green and red buttons on it and no way
+    # to get them back. A call is live from the moment the phone announces it
+    # until it ends, whatever the island happens to be drawing, and that is
+    # what the two guards ask about now.
+    op.evaluate("window.__calls.length = 0")
+    op.evaluate("window.__call('Maya Chen','Incoming call')"); op.wait_for_timeout(1200)
+    chk("a call that arrives is on the island", near(obox(), 312, 88), obox())
+    op.click("#island", position={"x": 12, "y": 10}); op.wait_for_timeout(1300)
+    chk("putting a ringing call away collapses it", near(obox(), 130, 38), obox())
+    op.evaluate("window.__music('Glass Hours','Neon Tide',true)"); op.wait_for_timeout(600)
+    chk("the player does not reopen an island a live call was put away from",
+        near(obox(), 130, 38), obox())
+    op.evaluate("window.__music('Soft Focus','Lumen',true)"); op.wait_for_timeout(500)
+    chk("and a different track does not either", near(obox(), 130, 38), obox())
+    op.evaluate("window.__notify('Messages','Ravi','Are you free?')"); op.wait_for_timeout(500)
+    chk("and a notification does not either", near(obox(), 130, 38), obox())
+    op.click("#island", position={"x": 12, "y": 10}); op.wait_for_timeout(1300)
+    chk("opening it again brings the call back, not the song", near(obox(), 312, 88), obox())
+    chk("and the caller is still on it",
+        "Maya" in op.eval_on_selector("#content", "e=>e.textContent"),
+        op.eval_on_selector("#content", "e=>e.textContent"))
+    # an answered call is the same call: it owns the island until it ends too,
+    # and ending it in the island has to hand the island back to the player
+    op.click("#content .btn.green"); op.wait_for_timeout(1300)
+    chk("answering it makes it a call in progress", near(obox(), 318, 118), obox())
+    op.click("#island", position={"x": 12, "y": 10}); op.wait_for_timeout(1300)
+    chk("putting an answered call away collapses it", near(obox(), 130, 38), obox())
+    op.evaluate("window.__music('Glass Hours','Neon Tide',true)"); op.wait_for_timeout(600)
+    chk("a call in progress is not taken over by the player either",
+        near(obox(), 130, 38), obox())
+    op.click("#island", position={"x": 12, "y": 10}); op.wait_for_timeout(1300)
+    chk("opening it again brings the call in progress back", near(obox(), 318, 118), obox())
+    op.evaluate("window.__calls.length = 0")
+    op.click('#content [data-a="end"]'); op.wait_for_timeout(1300)
+    chk("ending it collapses the island", near(obox(), 130, 38), obox())
+    chk("and the service is told the call is over, answered or not",
+        op.evaluate("window.__calls.filter(function(c){return c[0]==='callEnded'}).length") == 1,
+        op.evaluate("window.__calls"))
+    op.evaluate("window.__music('Glass Hours','Neon Tide',true)"); op.wait_for_timeout(1300)
+    chk("the player gets the island back once the call is over",
+        near(obox(), 318, 128), obox())
 
     # ---- real music ------------------------------------------------------
     op.evaluate("window.__music('Kesariya','Arijit Singh',true)")

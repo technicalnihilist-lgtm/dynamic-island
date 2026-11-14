@@ -75,6 +75,18 @@ public class IslandService extends Service {
     /* the incoming call's own answer / decline actions, taken from the phone's notification */
     private PendingIntent callAnswer, callDecline, callOpen;
     private String[] pendingCall;
+    /* A call the phone announced is live until it ends, and it owns the island
+       for all of that time - not only while the island happens to be drawing
+       it. `currentState` is the state on screen, and the island is 318 px of a
+       phone screen: tapping it away during a call sets that state to idle,
+       which is one of the two states the player is allowed to take. islandFree()
+       then said yes, the loop un-parked at the playing cadence and the player
+       was pushed at a window the call still owned. This is the fact the loop
+       actually wants: the call is running, whatever is drawn. Cleared where a
+       call really ends - the phone hung up (clearCall), or End/Decline was
+       tapped in the island (Bridge.callEnded, which an answered call sends
+       too). */
+    private volatile boolean callActive = false;
 
     /* real media, read straight out of the player's media session */
     private MediaController media;
@@ -373,6 +385,23 @@ public class IslandService extends Service {
         }
     }
 
+    /**
+     * The island is free for the player again: take the read now instead of
+     * waiting out a park, so a track is back on screen 400 ms after a call ends
+     * rather than up to six seconds later.
+     */
+    private void wakeMediaSoon() {
+        ui.post(new Runnable() {
+            @Override
+            public void run() {
+                if (!islandFree() || !attached || !pageReady || !screenOn) return;
+                mediaParked = false;
+                ui.removeCallbacks(mediaTick);
+                ui.postDelayed(mediaTick, 400);
+            }
+        });
+    }
+
     private void scheduleMediaPoll() {
         ui.removeCallbacks(mediaTick);
         if (!mediaStopped && screenOn) ui.postDelayed(mediaTick, mediaPollDelay);
@@ -435,6 +464,7 @@ public class IslandService extends Service {
      * island until they finish, and the player waits its turn (see applyMedia).
      */
     private boolean islandFree() {
+        if (callActive) return false;
         String s = currentState;
         return "idle".equals(s) || "music".equals(s);
     }
@@ -585,6 +615,7 @@ public class IslandService extends Service {
                 name == null ? "Unknown" : name,
                 label == null ? "Incoming call" : label};
         currentState = "incoming";
+        callActive = true;
         if (!pageReady) return;
         eval("window.__call&&window.__call("
                 + JSONObject.quote(pendingCall[0]) + "," + JSONObject.quote(pendingCall[1]) + ")");
@@ -596,8 +627,13 @@ public class IslandService extends Service {
         callDecline = null;
         callOpen = null;
         pendingCall = null;
+        callActive = false;
         if ("incoming".equals(currentState) || "ongoing".equals(currentState)) currentState = "idle";
         eval("window.__callEnd&&window.__callEnd()");
+        /* the island may have been put away while the call was up, in which
+           case the page has nothing to redraw and reports no state change -
+           so the player has to be let back in from here */
+        wakeMediaSoon();
     }
 
     private void loadPrefs() {
@@ -895,15 +931,20 @@ public class IslandService extends Service {
                overwritten by the time the report arrives. An ordinary tap
                between idle and music parks nothing and takes no read here. */
             if (!islandFree() || !mediaParked) return;
-            ui.post(new Runnable() {
-                @Override
-                public void run() {
-                    if (!islandFree() || !attached || !pageReady || !screenOn) return;
-                    mediaParked = false;
-                    ui.removeCallbacks(mediaTick);
-                    ui.postDelayed(mediaTick, 400);
-                }
-            });
+            wakeMediaSoon();
+        }
+
+        /**
+         * A call ended in the island rather than in the phone. End and Decline
+         * both send this, whether or not the phone owned the call - one that was
+         * answered here carries no PendingIntent to fire, so nothing else would
+         * tell the service the call is over, and it would go on holding the
+         * player back for it.
+         */
+        @JavascriptInterface
+        public void callEnded() {
+            callActive = false;
+            if (mediaParked) wakeMediaSoon();
         }
 
         @JavascriptInterface

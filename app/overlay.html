@@ -248,6 +248,18 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
   var state='idle', lastOpen='music', swapT=null, token=0, notifT=null;
   var notifData=['','',''];
   var callData={ name:'Maya Chen', label:'Incoming call…', real:false };
+  /* A call the phone has announced is live until it ends, whatever the island
+     is currently drawing. The two guards below (`OWNS_ISLAND`, `CALL_OWNS_ISLAND`)
+     only ask what state is on screen, and the island is 318 px of a phone
+     screen: tapping it away is the first thing anyone does, and doing it
+     during a call leaves this page's idea of the island at "idle" - the one
+     state the player and a notification are allowed to take. So the next
+     media poll, which runs every 1.5 s for as long as something is playing,
+     reopened the collapsed island as the music view and the live call was
+     gone from it, with no way back to the green and red buttons. The call is
+     live from the moment it is announced until it is ended, and it is what
+     the guards ask about now. */
+  var callLive=false;
   /* when a real player is running these come from its media session */
   var musicData={ title:'Glass Hours', artist:'Neon Tide', playing:true, real:false };
   var ti=0, playing=true, callTick=null, callStart=0, callNode=null;
@@ -405,6 +417,12 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
       }
       else if(act==='decline'||act==='end'){
         if(callData.real){ try{ if(N&&N.callAction) N.callAction('decline'); }catch(e){} callData.real=false; }
+        callLive=false;
+        /* A call that was answered here carries real:false, so nothing above
+           told the service anything - and the service is holding the player
+           back for a call it believes is still running. Say so either way, or
+           a track never comes back to an island that has ended its call. */
+        try{ if(N && N.callEnded) N.callEnded(); }catch(e){}
         callStart=0; muted=false; speakerOn=false;
         setState('idle');
       }
@@ -481,10 +499,12 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
   };
   window.__call=function(name,label){
     callData={ name:(name||'Unknown'), label:(label||'Incoming call'), real:true };
+    callLive=true;
     setState('incoming', true);
   };
   window.__callEnd=function(){
     callData.real=false;
+    callLive=false;
     /* the call is over: the next one starts with a clean clock and no mute */
     callStart=0; muted=false; speakerOn=false;
     /* the phone stopped ringing or the other side hung up: the island goes
@@ -517,7 +537,8 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     musicData={ title:(title||'Now playing'), artist:(artist||''), playing:!!isPlaying, real:true };
     playing = !!isPlaying;
     if(state!=='music'){
-      if(OWNS_ISLAND[state]) return;
+      /* a call that is still running owns the island even when it is put away */
+      if(OWNS_ISLAND[state] || callLive) return;
       setState('music');
     }
     else if(changed){
@@ -545,7 +566,7 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     if(musicData.real){ musicData.real=false; if(state==='music') setState('idle',false,true); }
   };
   window.__notify=function(app,title,text){
-    if(CALL_OWNS_ISLAND[state]) return;   /* a call owns the island until it ends */
+    if(CALL_OWNS_ISLAND[state] || callLive) return;   /* a call owns the island until it ends */
     notifData=[app||'',title||'',text||''];
     setState('notif', true);
   };

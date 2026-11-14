@@ -74,9 +74,31 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (301 checks, all passing). The 1.7.16 and 1.7.32
-entries are in the Android service rather than in the page, so only the contract they depend on is
-covered by the page suite.
+reproduced, fixed and covered by `tools/test_app.py` (315 checks, all passing). The 1.7.16, 1.7.32 and
+1.7.33 entries are in the Android service rather than in the page, so only the contract they depend on
+is covered by the page suite.
+
+### 1.7.33 — optimisation slot 4
+
+1. **A call that was still running lost the island the moment you put the island away.** The island is
+   318 px of a phone screen, so tapping it away is the first thing anyone does with it during a call —
+   and both pages decide who may take the island by asking what state is *on screen*. Putting a call
+   away makes that state `idle`, which is one of the two states the player is allowed to take, so the
+   next media poll — every 1.5 s for as long as anything is playing — reopened the collapsed island as
+   the music view. A phone that was still ringing (or a call that was still connected) vanished from
+   the island: no timer, no green and red buttons, nothing to answer, and no way to get them back short
+   of the phone announcing the call again, which it does not. A notification could take it the same
+   way. A call is live from the moment the phone announces it until it ends, whatever the island
+   happens to be drawing, and that is what the guards ask about now — in the page, and in the service,
+   where `islandFree()` was reading the same `currentState` and so un-parked the media loop at the
+   playing cadence to push a player at a window the call still owned. Ending a call in the island now
+   tells the service so (`Native.callEnded`), because a call that was *answered* there carries no
+   PendingIntent to fire and nothing else would ever say the call was over — the player would have
+   been held back for it for good. Fifteen new browser checks drive the floating island through it:
+   ring, tap it away, push a track and a notification at it, and it stays put; open it again and the
+   call is still there with its caller; answer it, tap it away, push a track, and it stays put; end
+   it, and the player gets the island back. Nothing on screen moves or changes for a call that is
+   open.
 
 ### 1.7.32 — optimisation slot 2
 
