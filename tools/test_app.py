@@ -1679,6 +1679,35 @@ with sync_playwright() as p:
     chk("a track stopping elsewhere collapses the island", near(hbox(), 130, 38), hbox())
     chk("a track stopping elsewhere does not buzz", hbuzz() == played, (played, hbuzz()))
 
+    # ... and a track *starting* elsewhere is not a gesture either. The player
+    # is polled, and the push that opens the island for it used to go through
+    # the same setState as a tap and end with the buzz that belongs to one: the
+    # phone vibrated for a song starting in another app, and again for every
+    # re-open of an island the user had just tapped away during playback. It
+    # was 1 haptic before this change and 0 after; the island itself must land
+    # on the same pixels, and the track must be on it. The buzz is read from
+    # the count the push leaves behind and the pixels are waited for, so
+    # neither check depends on how fast this machine delivers frames.
+    hp.evaluate("window.__calls.length = 0")
+    hp.evaluate("window.__music('Soft Focus','Lumen',true)")
+    hp.wait_for_timeout(400)
+    chk("a track starting elsewhere does not buzz", hbuzz() == 0, hbuzz())
+    hp.wait_for_timeout(500)
+    chk("but the track is on the island all the same",
+        hp.eval_on_selector("#content .col .t1", "e=>e.textContent") == "Soft Focus"
+        and hp.eval_on_selector("#content .col .t2", "e=>e.textContent") == "Lumen",
+        (hp.eval_on_selector("#content .col .t1", "e=>e.textContent"),
+         hp.eval_on_selector("#content .col .t2", "e=>e.textContent")))
+    prev = None
+    for _ in range(30):                     # wait for the bounce to stop moving
+        g = hbox()
+        if near(g, 318, 128) and g == prev: break
+        prev = g
+        hp.wait_for_timeout(100)
+    chk("and the island opens on the size the music view has always had",
+        near(hbox(), 318, 128), hbox())
+    hp.evaluate("window.__musicEnd()"); hp.wait_for_timeout(900)
+
     # and the one gesture this page really does own still buzzes
     hp.evaluate("window.__calls.length = 0")
     hp.eval_on_selector("#island", "e=>e.click()"); hp.wait_for_timeout(900)

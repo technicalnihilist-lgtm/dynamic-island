@@ -539,7 +539,22 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     if(state!=='music'){
       /* a call that is still running owns the island even when it is put away */
       if(OWNS_ISLAND[state] || callLive) return;
-      setState('music');
+      /* `silent`: this is the player being polled, not a hand on the island.
+         setState ends with the buzz that belongs to a gesture, and every other
+         way into this page has already been told which of its changes nobody
+         asked for - __setState (the app's own controls), a rebuilt page
+         replaying its state, and the states that end themselves. This one was
+         missed, and it is the one that arrives most often: a track starting in
+         another app opened the island with a medium buzz, and so did every
+         re-open of an island the user had just tapped away during playback -
+         the player is pushed at idle, so tapping the island shut while music
+         was up brought it back 1.5 s later with a vibration for a gesture the
+         user had already answered by putting it away. __musicEnd, the same
+         poll's other direction, has been silent since it was written; the two
+         halves of one read now behave the same way. The island opens on
+         exactly the same pixels and the track lands on it exactly as before -
+         the motor is what is left alone. */
+      setState('music', false, true);
     }
     else if(changed){
       var t1=content.querySelector('.col .t1'), t2=content.querySelector('.col .t2');

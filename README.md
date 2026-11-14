@@ -74,9 +74,27 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (315 checks, all passing). The 1.7.16, 1.7.32 and
+reproduced, fixed and covered by `tools/test_app.py` (318 checks, all passing). The 1.7.16, 1.7.32 and
 1.7.33 entries are in the Android service rather than in the page, so only the contract they depend on
 is covered by the page suite.
+
+### 1.7.34 — optimisation slot 5
+
+1. **The floating island buzzed the phone for a song starting in another app.** `setState()` ends with the
+   vibration that belongs to a gesture, and every way into the floating page has been told which of its
+   changes nobody asked for: the app's own controls pushing their state across the bridge, a rebuilt page
+   replaying what it was showing when Android killed its renderer, and every state that ends itself — a
+   notification's seven seconds running out, the caller hanging up, the track stopping. The player being
+   *read* was the one that was missed, and it is the one that arrives most often. The service polls the
+   media session, and the push that opens the island for a track went through the same `setState` as a tap:
+   the phone vibrated, medium, for a song starting in Spotify, and again for every re-open of an island the
+   user had just tapped away during playback — tapping the island shut during music is a gesture the user
+   has already had answered, and 1.5 s later the next poll brought the island back with a buzz for it. The
+   push is silent now, which is what `__musicEnd`, the same read's other direction, has been since it was
+   written. The island opens on exactly the same pixels and the track lands on it exactly as before; the
+   motor is what is left alone. Three new browser checks push a track at an idle floating island: no
+   haptic, the track on it, and the box at 318×128 — 1 haptic before the change, 0 after. A tap, a call
+   arriving and a notification arriving still buzz exactly as they did.
 
 ### 1.7.33 — optimisation slot 4
 
