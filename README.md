@@ -74,9 +74,26 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (334 checks, all passing). The 1.7.16, 1.7.32,
+reproduced, fixed and covered by `tools/test_app.py` (343 checks, all passing). The 1.7.16, 1.7.32,
 1.7.33, 1.7.35 and 1.7.36 entries are in the Android service as well as in the page, so the service half
 is covered only by the contract the page depends on.
+
+### 1.7.37 — optimisation slot 1
+
+1. **The tab key walked into the mirrored preview and its buttons did nothing.** While the floating island
+   is on, the preview is a mirror and not a control of its own, so `setIslandInteractive` took the island's
+   own tab stop away (`tabindex="-1"`) and hid it from a screen reader (`aria-hidden="true"`). Neither of
+   those reaches what is *inside* it: Accept, Decline, Mute, Speaker, Play and Next are real `<button>`s,
+   and `tabindex="-1"` on their parent does not touch them. So a keyboard user could still Tab into a
+   subtree TalkBack had been told to ignore — focus landed on a green and a red button announced for a
+   preview that takes no pointer events in that mode, and Enter on one of them drove the preview's own
+   state behind the floating island's back. The content is `inert` now, the same property that already
+   keeps the collapsed sheet and the closed accordion out of the tab order, so the whole subtree leaves
+   the tab order and the accessibility tree together — and, as there, no pixel moves: the preview keeps
+   its size, its fade and its content, and gets them all back the moment the floating island is switched
+   off. Nine new browser checks: with the island floating and a call mirrored, the two buttons are still
+   drawn, still 312×88, and can no longer be reached by `.focus()` or by walking the tab order; switching
+   the island off hands them back. Three of those failed before the change.
 
 ### 1.7.36 — optimisation slot 10
 

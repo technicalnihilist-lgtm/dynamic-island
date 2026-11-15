@@ -664,6 +664,55 @@ with sync_playwright() as p:
     chk("the focus page has no errors", len(xerrs) == 0, xerrs[:3])
     a11.close()
 
+    # ---- a mirrored preview must not keep its buttons in the tab order -----
+    # While the system-wide island is on, the preview is a mirror and not a
+    # control, so setIslandInteractive takes its own tab stop away
+    # (tabindex="-1") and hides it from a screen reader (aria-hidden="true").
+    # Neither of those reaches the buttons inside it: Accept, Decline, Mute,
+    # Speaker, Play and Next are real <button>s, and the tab order walked
+    # straight into a subtree the screen reader had been told to ignore -
+    # announcing buttons that cannot be pressed (the island takes no pointer
+    # events in this mode) and that, on Enter, drove the preview's state
+    # behind the floating island's back. The content is inert now, and nothing
+    # about the pixels changed.
+    mir = b.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=3, color_scheme="dark")
+    mir.add_init_script(MOCK)
+    mp = mir.new_page()
+    merrs = []
+    mp.on("pageerror", lambda e: merrs.append(str(e)))
+    mp.goto(URL); mp.wait_for_timeout(900)
+    mbox = lambda: box_of(mp)
+    mirror_reachable = lambda: mp.evaluate("""()=>{
+      var all = Array.prototype.slice.call(
+        document.querySelectorAll('#island button,#island [tabindex]'));
+      return all.filter(function(e){
+        return !e.closest('[inert]') && e.tabIndex >= 0 && !e.disabled;
+      }).map(function(e){ return e.getAttribute('aria-label') || e.tagName; });}""")
+    mp.evaluate("window.__canDraw = true; window.__sysState(true, false, false, '')")
+    mp.wait_for_timeout(200)
+    mp.click("#pw"); mp.wait_for_timeout(600)
+    chk("the switch turns the floating island on for the mirror test",
+        "On" in mp.eval_on_selector("#pwLabel", "e=>e.textContent"))
+    mp.click('#states .chip[data-s="incoming"]'); mp.wait_for_timeout(1600)
+    chk("a mirrored preview still draws the call it is mirroring",
+        mp.eval_on_selector_all("#content .btn", "els=>els.length") == 2
+        and mp.eval_on_selector("#content", "e=>getComputedStyle(e).opacity") == "1",
+        mp.eval_on_selector_all("#content .btn", "els=>els.length"))
+    chk("on exactly the size the call view has anywhere else", near(mbox(), 312, 88), mbox())
+    chk("a mirrored preview's buttons are out of the accessibility tree",
+        inert_of(mp, "#content") is True)
+    chk("a mirrored preview's buttons can no longer take focus",
+        can_focus(mp, "#content .btn.green") is False, can_focus(mp, "#content .btn.green"))
+    chk("nor can the tab order reach them", mirror_reachable() == [], mirror_reachable())
+    mp.evaluate("window.__canDraw = false; window.__sysState(false, false, false, '')")
+    mp.wait_for_timeout(400)
+    chk("switching the floating island off hands the buttons back",
+        can_focus(mp, "#content .btn.green") is True and inert_of(mp, "#content") is False,
+        (can_focus(mp, "#content .btn.green"), inert_of(mp, "#content")))
+    chk("and the island is still on the same pixels", near(mbox(), 312, 88), mbox())
+    chk("the mirror page has no errors", len(merrs) == 0, merrs[:3])
+    mir.close()
+
     # ---- the wallpaper clock ---------------------------------------------
     # it used to wake every second to redraw something that only changes once a
     # minute, and to reformat the date string on every one of those wakeups
