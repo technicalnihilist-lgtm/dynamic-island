@@ -74,9 +74,27 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (343 checks, all passing). The 1.7.16, 1.7.32,
+reproduced, fixed and covered by `tools/test_app.py` (350 checks, all passing). The 1.7.16, 1.7.32,
 1.7.33, 1.7.35, 1.7.36 and 1.7.38 entries are in the Android service as well as in the page, so the service
 half is covered only by the contract the page depends on.
+
+### 1.7.39 — optimisation slot 6
+
+1. **A press of Expand or Collapse with nothing to expand or collapse twitched the island.** Both buttons
+   end by kicking the springs, which is what makes a morph feel thrown rather than merely damped — and
+   `setState()` returns at once when the state asked for is the state already on screen. Pressed while the
+   island was already in that state, the kick ran anyway with no new target to run towards, so Expand on
+   an open island swung it 11 px past the size it already had (318 → 329 → 315) and Collapse on a closed
+   one shrank it to 123 px, for a press that asked for nothing. Each phantom press also paid for a 1.5 s
+   rAF loop of per-frame style writes — the springs converging on the size they were already at, then the
+   settle backstop snapping them. The two other callers that can arrive in the wrong state (a tap on the
+   wallpaper, the back button) already checked the state first; the guard is now in the one place both
+   buttons share. Nothing moves for a press that changes nothing, and a press that does change the state
+   bounces on exactly the same pixels as before. Seven new browser checks: Expand from idle still
+   overshoots and lands on 318×128, a second Expand keeps the width within 0.5 px of 318 for the whole
+   time the old code spent wobbling, Collapse still shrinks it to 130×38, and a second Collapse holds
+   130. Two of those failed before the change: the second Expand swung 318 → 328.08 and the second
+   Collapse 130 → 123.24.
 
 ### 1.7.38 — optimisation slot 4
 

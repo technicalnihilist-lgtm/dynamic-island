@@ -858,8 +858,30 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   };
 
   /* ============ island interactions ============ */
-  function openIsland(){ setState(state === 'idle' ? (lastOpen || 'music') : state); spW.v += 250; spH.v += 170; kick(); }
-  function closeIsland(){ setState('idle'); spW.v -= 190; spH.v -= 110; kick(); }
+  /* Both of these end with a kick, and the kick is the gesture's: it is what
+     makes the morph feel thrown rather than merely damped. It only belongs to
+     a press that had something to do. Expand on an island that is already
+     open, and Collapse on one that is already closed, used to hand the
+     springs a velocity and no new target - setState() returns at once for the
+     state that is already on screen, so the island twitched about the size it
+     already had (11 px past it and back on Expand, down to 123 px on
+     Collapse) for a press that asked for nothing, and paid a 1.5 s rAF loop
+     of per-frame style writes for it. The two callers that can be reached in
+     the wrong state already guard themselves - a tap on the wallpaper and the
+     back button both check the state first - so this is the same guard, in
+     the one place the two buttons share. Nothing moves for a press that
+     changes nothing; every press that does change the state bounces exactly
+     as before. */
+  function openIsland(){
+    if(state !== 'idle') return;                /* already open: nothing to expand */
+    setState(lastOpen || 'music');
+    spW.v += 250; spH.v += 170; kick();
+  }
+  function closeIsland(){
+    if(state === 'idle') return;                /* already closed: nothing to collapse */
+    setState('idle');
+    spW.v -= 190; spH.v -= 110; kick();
+  }
 
   island.addEventListener('click', function(e){
     var a = e.target.closest('[data-a]');

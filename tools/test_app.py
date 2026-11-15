@@ -1821,6 +1821,60 @@ with sync_playwright() as p:
     chk("the quiet-island page has no errors", len(herrs) == 0, herrs[:3])
     hz.close()
 
+    # ---- a press with nothing to expand must not move the island ----------
+    # Expand and Collapse both ended with a velocity kick, and the springs only
+    # have somewhere to go if the state actually changed. Pressed while the
+    # island is already in the state the button asks for, setState() returns at
+    # once and the kick ran anyway, so the island twitched for a press that had
+    # nothing to do: Expand on an open island swung it 11 px past the size it
+    # already had and back, and Collapse on a closed one shrank it to 123 px.
+    # The press paid for it too - a 1.5 s rAF loop of per-frame style writes,
+    # and the native window resized at the end of it - for a morph with no
+    # destination. The kick belongs to the gesture, and there is no gesture
+    # when the island is already where the button wants it. The two presses
+    # that do change something must still bounce exactly as they did, which is
+    # what the first and third checks here are for.
+    nx = b.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=3, color_scheme="dark")
+    nx.add_init_script(MOCK)
+    np_ = nx.new_page()
+    nerrs = []
+    np_.on("pageerror", lambda e: nerrs.append(str(e)))
+    np_.goto(URL); np_.wait_for_timeout(900)
+
+    def swing(sel, ms=420):
+        """click `sel` from inside the page and record the island's width for `ms`"""
+        return np_.evaluate("""([sel, ms]) => new Promise(function(res){
+            var el = document.getElementById('island'), out = [], t0 = performance.now();
+            document.querySelector(sel).click();
+            function step(){
+              out.push(parseFloat(el.style.width));
+              if(performance.now() - t0 < ms) requestAnimationFrame(step); else res(out);
+            }
+            requestAnimationFrame(step);
+          })""", [sel, ms])
+
+    drift = lambda xs, at: max(abs(x - at) for x in xs)
+
+    opened = swing("#btnExpand")                  # idle -> music, a real gesture
+    np_.wait_for_timeout(2200)                    # let the morph settle on its target
+    chk("expanding from idle still bounces", max(opened) > 322, max(opened))
+    g1 = box_of(np_)
+    chk("and lands on the music size", near(g1, 318, 128), g1)
+    again = swing("#btnExpand")                   # already open: nothing to expand
+    chk("expanding an island that is already open does not move it",
+        drift(again, 318) <= 0.5, (min(again), max(again)))
+    g2 = box_of(np_)
+    chk("and leaves it exactly where it was", near(g2, 318, 128), g2)
+    closed = swing("#btnCollapse")                # music -> idle, a real gesture
+    np_.wait_for_timeout(2200)
+    g3 = box_of(np_)
+    chk("collapsing an open island still shrinks it", near(g3, 130, 38), g3)
+    shut = swing("#btnCollapse")
+    chk("collapsing an island that is already closed does not move it",
+        drift(shut, 130) <= 0.5, (min(shut), max(shut)))
+    chk("the phantom-press page has no errors", len(nerrs) == 0, nerrs[:3])
+    nx.close()
+
     b.close()
 
 print("\n%d checks, %d failed" % (checks[0], len(fails)))
