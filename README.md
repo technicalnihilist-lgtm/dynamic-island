@@ -75,8 +75,23 @@ Any earlier version installs straight over the top — same signing key.
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
 reproduced, fixed and covered by `tools/test_app.py` (343 checks, all passing). The 1.7.16, 1.7.32,
-1.7.33, 1.7.35 and 1.7.36 entries are in the Android service as well as in the page, so the service half
-is covered only by the contract the page depends on.
+1.7.33, 1.7.35, 1.7.36 and 1.7.38 entries are in the Android service as well as in the page, so the service
+half is covered only by the contract the page depends on.
+
+### 1.7.38 — optimisation slot 4
+
+1. **The media poll asked the phone about every player, twice, on every tick.** `readMedia` runs on a timer
+   for as long as anything is playing — every 1.5 s — and each read of a session's playback state is a
+   blocking binder round trip into another app's process. It read the state of *every* session on the
+   phone to find the playing one, went on reading after it had already found it, and then read the chosen
+   session's state a second time to decide `snap.playing` — five or six round trips a poll on a phone with
+   a player and two or three paused sessions, for an answer that needs one or two. The state read while
+   looking is now carried out of the loop and used for the chosen session, and the search stops at the
+   first playing session, because that is the session the read will use whatever the rest of the list
+   says. The same session is still chosen, with the same title, artist and playing flag: an exhaustive
+   check of the old and new selection over 3,280 combinations of session states, packages and remembered
+   packages finds no difference. Service-only, so no browser check — the page half of this contract is
+   unchanged and all 343 checks still pass, and the four sources compile against android-34.
 
 ### 1.7.37 — optimisation slot 1
 

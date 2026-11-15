@@ -434,14 +434,34 @@ public class IslandService extends Service {
             MediaSessionManager msm = (MediaSessionManager) getSystemService(MEDIA_SESSION_SERVICE);
             if (msm == null) return snap;
             List<MediaController> list = msm.getActiveSessions(new ComponentName(this, NotifListener.class));
+            /* Every one of these reads is a blocking binder round trip into
+               another app's process, and this loop runs on a timer for as long
+               as anything is playing. It used to read the playback state of
+               every session on the phone - and then read the chosen session's
+               state a second time, below - and it went on reading after it had
+               already found a playing session, which is the session it will use
+               whatever the rest of the list says. On a phone with a player and
+               two or three paused sessions that was five or six round trips a
+               poll where one or two will do, every 1.5 s, on the battery. The
+               state that is read here is carried out of the loop and used for
+               `playing`, so the chosen session is asked once; the search stops
+               at the first playing session because nothing after it can change
+               the answer, and the same session is still the one chosen. */
             MediaController playing = null, known = null;
+            PlaybackState playingState = null, knownState = null;
             if (list != null) {
                 for (MediaController c : list) {
+                    if (playing != null) break;      /* the answer cannot change now */
                     PlaybackState ps = c.getPlaybackState();
                     if (ps == null) continue;
-                    int st = ps.getState();
-                    if (st == PlaybackState.STATE_PLAYING && playing == null) playing = c;
-                    if (known == null && knownPkg != null && knownPkg.equals(c.getPackageName())) known = c;
+                    if (ps.getState() == PlaybackState.STATE_PLAYING) {
+                        playing = c;
+                        playingState = ps;
+                    } else if (known == null && knownPkg != null
+                            && knownPkg.equals(c.getPackageName())) {
+                        known = c;
+                        knownState = ps;
+                    }
                 }
             }
             MediaController target = playing != null ? playing : known;
@@ -455,7 +475,7 @@ public class IslandService extends Service {
             snap.pkg = target.getPackageName();
             snap.title = title == null ? snap.pkg : title;
             snap.artist = artist;
-            PlaybackState ps = target.getPlaybackState();
+            PlaybackState ps = playing != null ? playingState : knownState;
             snap.playing = ps != null && ps.getState() == PlaybackState.STATE_PLAYING;
             snap.controller = target;
             snap.status = MEDIA_OK;
