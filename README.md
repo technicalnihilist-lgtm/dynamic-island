@@ -143,9 +143,28 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (354 checks, all passing). The 1.7.16, 1.7.32,
+reproduced, fixed and covered by `tools/test_app.py` (360 checks, all passing). The 1.7.16, 1.7.32,
 1.7.33, 1.7.35, 1.7.36, 1.7.38 and 1.7.40 entries are in the Android service as well as in the page, so the
 service half is covered only by the contract the page depends on.
+
+### 1.7.42 — optimisation slot 6
+
+1. **A call that survived Android reclaiming the page came back with a clock starting from zero.** The service
+   answers a dead renderer by throwing the WebView away and building a new one, and the only thing the new
+   page is told is the state the island was showing — which is what 1.7.40 fixed, so the island comes back
+   on "ongoing" with the green and red buttons where they belong. What came back with it was a clock
+   reading 00:00: `callStart` was this page's own memory of when the call began, a page that has just been
+   built has none of it, and the call view falls back on `Date.now()` — so a call that had been running for
+   ten minutes came back counting up from zero and stayed that far behind for the rest of the call, in the
+   one window the user is looking at over another app. The start is written down as it is taken and read
+   back the moment the call view opens, so a rebuilt page rejoins the call it was already drawing; a call
+   that really arrives, End, Decline and the phone hanging up all clear it, so the number that comes back is
+   always the call that was actually running. Nothing is written, read or drawn in any other state, and the
+   pixels are the ones the same call drew before the renderer died. Six new browser checks: a call is
+   answered and left running, the page is reloaded exactly as a rebuilt one is, the service replays
+   "ongoing", and the timer reads the call's real elapsed time instead of 00:00 and goes on counting from
+   there; a call that arrives after the rebuild still starts at zero, and ending a call leaves nothing
+   behind for the next one. The first two fail before the change (the rebuilt page read 00:00).
 
 ### 1.7.41 — optimisation slot 2
 

@@ -263,6 +263,30 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
   /* when a real player is running these come from its media session */
   var musicData={ title:'Glass Hours', artist:'Neon Tide', playing:true, real:false };
   var ti=0, playing=true, callTick=null, callStart=0, callNode=null;
+  /* A call outlives this page. Android reclaims a WebView under memory
+     pressure - a window that sits over every app all day is exactly what it
+     picks on - and the service answers that by throwing the page away and
+     building a new one, which is then told the state the island was showing
+     (see overlayFailure). The island therefore came back on "ongoing", with
+     the green and red buttons where they belong, and with a clock starting
+     from zero: callStart is this page's memory of when the call began, and a
+     page that has just been built has none, so a call that had been running
+     for ten minutes came back reading 00:00 and counting up from there - the
+     one screen the user is looking at, over another app, lying about the call
+     it is drawing, for as long as the call lasted. The start is written down
+     where it can outlive the page and read back the moment the call view
+     opens; a call that really arrives, and every way a call ends, clear it, so
+     what comes back is always the call that was actually running. */
+  var CALL_KEY='di.call';
+  function savedCallStart(){
+    try{
+      var v=+localStorage.getItem(CALL_KEY);
+      /* a start in the future is a clock that went backwards, not a call */
+      return (v>0 && v<=Date.now())?v:0;
+    }catch(e){ return 0; }
+  }
+  function saveCallStart(){ try{ localStorage.setItem(CALL_KEY,String(callStart)); }catch(e){} }
+  function clearCallStart(){ try{ localStorage.removeItem(CALL_KEY); }catch(e){} }
   /* Mute and Speaker are the call's, not the two buttons' - see the preview.
      They were kept only in the DOM, and this view is rebuilt from scratch on
      every state change, so muting a real call and then putting the island away
@@ -375,7 +399,7 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     /* a call arriving, or one being placed, is a new call: its mute, its
        speaker and its clock start empty. Putting the island away and bringing
        it back is the same call, and keeps all three. */
-    if(next==='incoming'||next==='calling'){ callStart=0; muted=false; speakerOn=false; }
+    if(next==='incoming'||next==='calling'){ callStart=0; muted=false; speakerOn=false; clearCallStart(); }
     if(callTick){ clearInterval(callTick); callTick=null; callNode=null; }
     if(notifT){ clearTimeout(notifT); notifT=null; }
     targets();
@@ -393,8 +417,12 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
       if(state==='ongoing'){
         /* the clock belongs to the call, not to this view: keep it and paint it
            at once, so opening the island again mid-call shows the real elapsed
-           time instead of 00:00 and then a second of placeholder */
-        if(!callStart) callStart=Date.now();
+           time instead of 00:00 and then a second of placeholder. A page that
+           has just been rebuilt is in the same position as one that was only
+           collapsed - the call did not start when this page did - so it reads
+           the start back before falling back on now. */
+        if(!callStart) callStart=savedCallStart()||Date.now();
+        saveCallStart();
         callNode=content.querySelector('[data-role="time"]');
         paintCallTime();
         callTick=setInterval(paintCallTime,1000);
@@ -412,7 +440,7 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
       var act=a.dataset.a;
       if(act==='accept'){
         if(callData.real){ try{ if(N&&N.callAction) N.callAction('accept'); }catch(e){} callData.real=false; }
-        callStart=0; muted=false; speakerOn=false;
+        callStart=0; muted=false; speakerOn=false; clearCallStart();
         setState('ongoing');
       }
       else if(act==='decline'||act==='end'){
@@ -423,7 +451,7 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
            back for a call it believes is still running. Say so either way, or
            a track never comes back to an island that has ended its call. */
         try{ if(N && N.callEnded) N.callEnded(); }catch(e){}
-        callStart=0; muted=false; speakerOn=false;
+        callStart=0; muted=false; speakerOn=false; clearCallStart();
         setState('idle');
       }
       else if(act==='mute'||act==='speaker'){
@@ -525,7 +553,7 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     callData.real=false;
     callLive=false;
     /* the call is over: the next one starts with a clean clock and no mute */
-    callStart=0; muted=false; speakerOn=false;
+    callStart=0; muted=false; speakerOn=false; clearCallStart();
     /* the phone stopped ringing or the other side hung up: the island goes
        away on its own, so it goes away without a buzz */
     if(state==='incoming'||state==='ongoing') setState('idle',false,true);

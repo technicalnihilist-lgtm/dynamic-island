@@ -1241,6 +1241,51 @@ with sync_playwright() as p:
     chk("overlay honours the max width it is given", obox()["w"] <= 240, obox())
     chk("overlay has no errors", len(oerrs) == 0, oerrs[:3])
 
+    # ---- the call clock has to survive the page being rebuilt -------------
+    # Android reclaims a WebView under memory pressure, and a window that sits
+    # over every app all day is exactly what it picks on: the service answers
+    # that by throwing the page away and building a new one, and then replays
+    # the state the island was showing. The island came back on "ongoing" with
+    # the green and red buttons where they belong and with a clock starting
+    # from 00:00, counting up from there for the rest of a call that may
+    # already be ten minutes old - the one screen the user is looking at, over
+    # another app, lying about the call it is drawing. callStart was the page's
+    # own memory of when the call began and a page that has just been built has
+    # none of it. The start is written down where it outlives the page, and
+    # read back when the call view opens; a call that really arrives and every
+    # way a call ends clear it.
+    reb = b.new_context(viewport={"width": 390, "height": 200}, device_scale_factor=3, color_scheme="dark")
+    reb.add_init_script(MOCK)
+    rp = reb.new_page()
+    rerrs = []
+    rp.on("pageerror", lambda e: rerrs.append(str(e)))
+    rp.goto(OVERLAY_URL); rp.wait_for_timeout(800)
+    rtime = lambda: rp.eval_on_selector(
+        '#content [data-role="time"]',
+        "e=>{const p=e.textContent.split(':');return (+p[0])*60+(+p[1])}")
+    rp.evaluate("window.__call('Ravi Kumar','Incoming call')"); rp.wait_for_timeout(900)
+    rp.click('#content .btn.green'); rp.wait_for_timeout(2400)
+    ran = rtime()
+    chk("the clock counts while the island is showing the call", ran >= 2, ran)
+    # the renderer is reclaimed, the service builds a new page and replays the
+    # state the island was showing - which is all a rebuilt page is ever told
+    rp.reload(); rp.wait_for_timeout(800)
+    rp.evaluate("window.__setState('ongoing')"); rp.wait_for_timeout(900)
+    chk("a rebuilt page comes back on the call's real elapsed time, not 00:00",
+        rtime() >= ran, (ran, rtime()))
+    rp.wait_for_timeout(1200)
+    chk("and the clock it came back on keeps counting", rtime() > ran, (ran, rtime()))
+    # a call that arrives after the rebuild is a new call, and starts at zero
+    rp.evaluate("window.__call('Someone Else','Incoming call')"); rp.wait_for_timeout(900)
+    rp.click('#content .btn.green'); rp.wait_for_timeout(800)
+    chk("a call that arrives after a rebuild still starts at zero", rtime() == 0, rtime())
+    rp.click('#content .ib.red'); rp.wait_for_timeout(1600)
+    chk("ending the call leaves no clock behind for the next one",
+        rp.evaluate("localStorage.getItem('di.call')") is None,
+        rp.evaluate("localStorage.getItem('di.call')"))
+    chk("the rebuilt-page clock has no errors", len(rerrs) == 0, rerrs[:3])
+    reb.close()
+
     # ---- the render loop must not force a layout every frame --------------
     # paint() runs on every frame of every morph and read window.innerWidth
     # there, which makes the browser flush the style and layout the previous
