@@ -1164,9 +1164,34 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   }
   tickClock();
   scheduleClock();
-  window.addEventListener('resize', function(){ readViewport(); invalidateStage(); applyTargets(false); });
+  /* A rotation, the soft keyboard opening, a split-screen divider being
+     dragged: Android hands the page a stream of resize events, not one, and
+     every single one of them ran the whole viewport pipeline - window.innerWidth
+     for the clamp, the stage's box for the position, and a fresh impulse on the
+     springs. Thirty events in a second was thirty forced layouts, thirty
+     measured stage boxes and thirty kicks, for a window that had changed once,
+     and the drag of a divider is exactly when there are frames to lose. The
+     burst is collapsed into one pass now, run on the next frame: the first
+     event of a burst schedules it and the rest of the burst is dropped. The
+     pass itself is unchanged - the same reads, the same targets, the same
+     impulse - so the island lands on the size and position it always landed
+     on, and a window that resizes once still costs exactly one pass.
+     rAF is paused in a page that is not being drawn, and the queued callback
+     runs the moment it is drawn again, so a resize that arrives while the app
+     is away is still applied on return rather than lost. */
+  var resizeQueued = false;
+  function applyViewport(){
+    resizeQueued = false;
+    readViewport(); invalidateStage(); applyTargets(false);
+  }
+  function onResize(){
+    if(resizeQueued) return;
+    resizeQueued = true;
+    requestAnimationFrame(function(){ if(resizeQueued) applyViewport(); });
+  }
+  window.addEventListener('resize', onResize);
   window.addEventListener('orientationchange', function(){
-    setTimeout(function(){ readViewport(); invalidateStage(); applyTargets(false); }, 120);
+    setTimeout(onResize, 120);
   });
   /* every way the stage can change size the window listeners do not see -
      the sheet animating, the accordion, a WebView that resizes on its own -

@@ -143,9 +143,26 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (363 checks, all passing). The 1.7.16, 1.7.32,
+reproduced, fixed and covered by `tools/test_app.py` (369 checks, all passing). The 1.7.16, 1.7.32,
 1.7.33, 1.7.35, 1.7.36, 1.7.38 and 1.7.40 entries are in the Android service as well as in the page, so the
 service half is covered only by the contract the page depends on.
+
+### 1.7.44 — optimisation slot 10
+
+1. **A burst of window resizes cost one forced layout per event.** A rotation, the soft keyboard opening or a
+   split-screen divider being dragged hands the page a stream of `resize` events, not one — and every single
+   one of them ran the whole viewport pipeline: `window.innerWidth` for the clamp, the stage's box for the
+   position, and a fresh impulse on the springs. Ten events in a single task measured the stage ten times and
+   kicked the loop ten times, for a window that had changed once, and a divider drag is exactly when there are
+   frames to lose. The burst is collapsed into a single pass now, run on the next frame: the first event of a
+   burst schedules it and the rest of the burst is dropped. The pass itself is unchanged — the same reads, the
+   same targets, the same impulse — so the island lands on the size and position it always landed on, and a
+   window that resizes once still costs exactly one pass. The queued callback is a `requestAnimationFrame`, so
+   a resize that arrives while the page is not being drawn is applied the moment it is drawn again rather than
+   lost. Six new browser checks: ten synthetic resize events in one task must measure the stage once and ask
+   the window for its width once, a single resize must still do both exactly once (so the burst cannot be
+   coalesced into nothing), and the coalesced pass must still clamp the island to a narrower window. The first
+   two fail before the change (they measure ten times).
 
 ### 1.7.43 — optimisation slot 9
 

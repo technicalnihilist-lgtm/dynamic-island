@@ -1360,6 +1360,45 @@ with sync_playwright() as p:
     chk("the render page has no errors", len(lerrs) == 0, lerrs[:3])
     lay.close()
 
+    # ---- a burst of window resizes must be measured once, not once each ---
+    # A rotation, the soft keyboard opening or a split-screen divider being
+    # dragged hands the page a stream of resize events, not one, and every one
+    # of them ran the whole viewport pipeline: window.innerWidth for the clamp,
+    # a forced layout for the stage's box and a fresh impulse on the springs.
+    # Ten events in a single task was ten forced layouts for a window that had
+    # changed once. The burst is collapsed into one pass now, and the pass
+    # itself - the reads, the targets, the impulse - is the one it always was.
+    rzc = b.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=3, color_scheme="dark")
+    rzc.add_init_script(MOCK)
+    rzc.add_init_script(VIEWPORT_FAKE)
+    rzc.add_init_script(STAGE_FAKE)
+    zp = rzc.new_page()
+    zerrs = []
+    zp.on("pageerror", lambda e: zerrs.append(str(e)))
+    zp.goto(URL); zp.wait_for_timeout(900)
+    zp.evaluate("window.__stageReads = 0; window.__vwReads = 0")
+    zp.evaluate("(function(){ for(var i=0;i<10;i++) window.dispatchEvent(new Event('resize')); })()")
+    zp.wait_for_timeout(400)
+    reads = zp.evaluate("window.__stageReads")
+    chk("a burst of ten resizes measures the stage once", reads <= 1, reads)
+    reads = zp.evaluate("window.__vwReads")
+    chk("and asks the window for its width once", reads <= 1, reads)
+    # one event on its own still does the whole job, exactly once
+    zp.evaluate("window.__stageReads = 0; window.__vwReads = 0")
+    zp.evaluate("window.dispatchEvent(new Event('resize'))")
+    zp.wait_for_timeout(400)
+    reads = zp.evaluate("window.__stageReads")
+    chk("a single resize still measures the stage", reads == 1, reads)
+    reads = zp.evaluate("window.__vwReads")
+    chk("and still reads the width once", reads == 1, reads)
+    # and the coalesced pass still ends on the window it was handed
+    zp.set_viewport_size({"width": 300, "height": 700})
+    zp.wait_for_timeout(1500)
+    zw = zp.eval_on_selector("#island", "e=>Math.round(e.getBoundingClientRect().width)")
+    chk("the coalesced pass still lands the island on the narrower window", zw <= 284, zw)
+    chk("the resize page has no errors", len(zerrs) == 0, zerrs[:3])
+    rzc.close()
+
     # ---- the position maths must not force a layout every frame -----------
     # applyPos() runs on every frame of a size-slider drag, and it read the
     # stage's box each time. paint() had just written the island's width and
