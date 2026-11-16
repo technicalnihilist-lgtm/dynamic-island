@@ -144,8 +144,29 @@ Any earlier version installs straight over the top — same signing key.
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
 reproduced, fixed and covered by `tools/test_app.py` (350 checks, all passing). The 1.7.16, 1.7.32,
-1.7.33, 1.7.35, 1.7.36 and 1.7.38 entries are in the Android service as well as in the page, so the service
-half is covered only by the contract the page depends on.
+1.7.33, 1.7.35, 1.7.36, 1.7.38 and 1.7.40 entries are in the Android service as well as in the page, so the
+service half is covered only by the contract the page depends on.
+
+### 1.7.40 — optimisation slot 1
+
+1. **After Android rebuilt the island's page, the island came back in the wrong state.** Android reclaims a
+   WebView under memory pressure, and a window that sits over every app all day is exactly what it picks
+   on, so the service answers that by throwing the page away and building a new one (`overlayFailure`).
+   The new page has to be told what it was showing, and it was told `pendingState` — the last state the
+   *app's own preview* pushed across the bridge. But the island is driven from two places: the preview
+   writes `pendingState`, and the island's own taps do not, because they arrive as
+   `Bridge.stateChanged`, which updates `currentState` and nothing else. The two drift the moment anyone
+   touches the floating island. Pick Music in the app, go home, tap the island away, and `pendingState`
+   still says `music` while the island is collapsed; the renderer is then reclaimed, the rebuilt page is
+   handed `music`, and the island the user had just put away opens itself again over whatever app they
+   were in. The other way round is the same bug: open the island by hand when the preview last pushed
+   `idle` and a rebuild makes it vanish. The old guard only fell back to `currentState` when nothing had
+   ever been pushed, which is why this could only ever show up after a tap on the floating island.
+   `currentState` is written by both paths — `applyState` and `stateChanged` — so the replay reads it
+   unconditionally now, and the rebuilt island comes back on exactly the state it was on. Service-only,
+   so no browser check: the page half of the contract (a replayed state reopens the island without
+   buzzing, on the size that state has) is unchanged, all 350 checks still pass, and the four sources
+   compile against android-34.
 
 ### 1.7.39 — optimisation slot 6
 

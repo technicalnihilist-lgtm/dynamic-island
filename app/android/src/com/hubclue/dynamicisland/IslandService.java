@@ -783,9 +783,27 @@ public class IslandService extends Service {
                 return;
             }
             lastRebuildAt = now;
-            /* the state survives the page: it is pushed again into the new one
-               as soon as it reports itself ready */
-            if (pendingState == null) pendingState = currentState;
+            /* The state survives the page: it is pushed again into the new one
+               as soon as it reports itself ready.
+               What is pushed has to be the state the island was actually
+               showing, and `pendingState` is not it. That field is the last
+               state the app's own preview pushed across the bridge, and the
+               island is driven from two places: the preview, which writes
+               pendingState, and its own taps, which do not - they arrive as
+               Bridge.stateChanged and only update currentState. So the two
+               drift the moment the user touches the floating island. Put the
+               island away after picking Music in the app and pendingState
+               still says "music" while the island is collapsed; Android then
+               reclaims the renderer, the rebuilt page is handed "music", and
+               the island the user had just put away opens itself again over
+               whatever app they are in. The other way round is the same bug:
+               open the island by hand when the preview last pushed "idle" and
+               a rebuild makes it vanish. The old guard only fell back to
+               currentState when nothing had ever been pushed, which is why
+               this only ever showed up after a tap on the floating island.
+               currentState is written by both paths - applyState and
+               stateChanged - so it is the one that knows what is on screen. */
+            pendingState = currentState;
             removeOverlay();
             addOverlay();
         }
