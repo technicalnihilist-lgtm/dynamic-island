@@ -820,6 +820,18 @@ with sync_playwright() as p:
     chk("and starts unmuted",
         tp.eval_on_selector('#content [data-a="mute"]', "e=>e.getAttribute('aria-pressed')") == "false",
         tp.eval_on_selector('#content [data-a="mute"]', "e=>e.getAttribute('aria-pressed')"))
+    # The minutes were formatted by keeping the last two characters of the
+    # count, so the hundredth minute wrapped: a call an hour and forty minutes
+    # old read "00:05" - a time it had already passed - for as long as it
+    # lasted. Everything under 100 minutes is the same string it always was.
+    tp.evaluate("window.__off += 100*60000 + 5000")
+    tp.wait_for_timeout(1200)
+    longshown = tp.eval_on_selector('#content [data-role="time"]', "e=>e.textContent")
+    longparts = longshown.split(":")
+    chk("a call in its second hour shows its real minutes",
+        len(longparts) == 2 and longparts[0] == "100" and 3 <= int(longparts[1]) <= 12,
+        longshown)
+    chk("and does not read as a wrapped clock", tsecs() >= 6000, tsecs())
     chk("the call timer page has no errors", len(terrs) == 0, terrs[:3])
     tim.close()
 
@@ -912,6 +924,13 @@ with sync_playwright() as p:
     op.wait_for_timeout(1200)
     chk("a throttled floating island still shows the real call time",
         125 <= osecs() <= 128, osecs())
+    # the same wrap, in the window that is actually on screen over other apps
+    op.evaluate("window.__off += 100*60000")
+    op.wait_for_timeout(1200)
+    olong = op.eval_on_selector('#content [data-role="time"]', "e=>e.textContent")
+    chk("a call in its second hour shows its real minutes on the floating island",
+        len(olong.split(":")) == 2 and len(olong.split(":")[0]) == 3 and osecs() >= 6100,
+        (olong, osecs()))
 
     # ---- mute and speaker must say what they are -------------------------
     # The only thing that changes when Mute or Speaker is tapped is the button

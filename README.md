@@ -143,9 +143,23 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (360 checks, all passing). The 1.7.16, 1.7.32,
+reproduced, fixed and covered by `tools/test_app.py` (363 checks, all passing). The 1.7.16, 1.7.32,
 1.7.33, 1.7.35, 1.7.36, 1.7.38 and 1.7.40 entries are in the Android service as well as in the page, so the
 service half is covered only by the contract the page depends on.
+
+### 1.7.43 — optimisation slot 9
+
+1. **A call that passed an hour and a half showed a time it had already passed.** The call clock formatted its
+   minutes by keeping the last two characters of the count — `('0'+m).slice(-2)` — which is right up to the
+   ninety-ninth minute and wraps at the hundredth: a call an hour and forty minutes old read `00:05`, then
+   `00:06`, counting up from zero again inside its second hour. Both islands do this, and the floating one is
+   the screen the user is looking at over another app for the whole of a long call, so the number it showed was
+   wrong for as long as the call lasted, and wrong in the one way a clock must not be: plausible. The minutes
+   and the seconds are padded instead of sliced, so every call under 100 minutes draws the exact string it drew
+   before — `00:00`, `01:05`, `99:59` — and a longer one keeps counting (`100:07`). Nothing else about the
+   timer, its cadence or its node changed. Three new browser checks: a call is answered, the clock is pushed
+   past its hundredth minute, and both islands are read — the preview must show three-digit minutes and must
+   not parse back to a wrapped, shorter time. Both fail before the change (they read `00:05`-style).
 
 ### 1.7.42 — optimisation slot 6
 

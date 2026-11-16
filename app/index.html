@@ -614,12 +614,18 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
      call that had been going for five seconds. It reads the wall clock now:
      a late tick only delays the redraw, it cannot lose time, and returning to
      the app re-syncs it at once instead of a minute later. The node it writes
-     into is looked up once per call rather than once a second. */
+     into is looked up once per call rather than once a second.
+     The minutes were formatted by taking the last two characters of the
+     count, which is right up to the ninety-ninth minute and wraps at the
+     hundredth: a call an hour and forty minutes old read "00:05", a time it
+     had already passed, in the one place the user is looking at over another
+     app. Padding instead of slicing leaves every call under 100 minutes the
+     exact string it was and lets a longer one keep counting. */
   function paintCallTime(){
     if(!callNode) return;
     var s = Math.floor((Date.now() - callStart) / 1000);
     if(s < 0) s = 0;
-    callNode.textContent = ('0'+Math.floor(s/60)).slice(-2)+':'+('0'+(s%60)).slice(-2);
+    callNode.textContent = pad(Math.floor(s/60))+':'+pad(s%60);
   }
   function startTimers(){
     if(state === 'ongoing'){
@@ -1069,6 +1075,7 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   grab.addEventListener('click', function(){ setSheet(!sheetOpen); haptic('light'); });
 
   /* ============ clock and date ============ */
+  /* also used by paintCallTime(), which runs long before this point */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
   var elClock = $('#clock'), elDate = $('#date'), lastTime = '', lastDate = '';
   function tickClock(){

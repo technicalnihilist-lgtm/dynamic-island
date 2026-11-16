@@ -299,12 +299,19 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
      consider foreground - a call left running behind another app came back
      minutes behind the real call. It reads the wall clock now, so a missed
      tick only delays the redraw, and the node it writes into is looked up once
-     per call instead of once a second. */
+     per call instead of once a second.
+     The minutes were formatted by taking the last two characters of the
+     count, which is right up to the ninety-ninth minute and wraps at the
+     hundredth: a call an hour and forty minutes old read "00:05", a time it
+     had already passed, in the window that is on screen over every other app.
+     Padding instead of slicing leaves every call under 100 minutes the exact
+     string it was and lets a longer one keep counting. */
+  function pad2(n){ return n<10?'0'+n:''+n; }
   function paintCallTime(){
     if(!callNode) return;
     var s=Math.floor((Date.now()-callStart)/1000);
     if(s<0) s=0;
-    callNode.textContent=('0'+Math.floor(s/60)).slice(-2)+':'+('0'+(s%60)).slice(-2);
+    callNode.textContent=pad2(Math.floor(s/60))+':'+pad2(s%60);
   }
 
   var P={mic:'M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-3.1A7 7 0 0 0 19 11z',
