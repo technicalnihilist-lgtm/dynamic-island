@@ -1262,6 +1262,31 @@ with sync_playwright() as p:
     chk("the render loop does not ask for the viewport on every frame", reads <= 1, reads)
     lp.wait_for_timeout(1700)
     chk("the morph still lands on the right size", near(box_of(lp), 318, 128), box_of(lp))
+    # The loop used to carry a fourth spring - a scale, from a tap wobble that
+    # no longer exists. Nothing ever gave it a target or a velocity, so it sat
+    # on 1 for the life of the page while paint() turned it into "scale(1.000)"
+    # and "opacity: 1" on every frame of every morph: two strings built,
+    # compared and written per frame for two properties that never changed.
+    # The island's own stylesheet already sets the transform it needs and an
+    # opacity of 1, so the loop writes only what its springs actually move.
+    chk("the render loop writes no transform it never changes",
+        lp.eval_on_selector("#island", "e=>e.style.transform") == "",
+        lp.eval_on_selector("#island", "e=>e.style.transform"))
+    chk("nor an opacity that is always the same",
+        lp.eval_on_selector("#island", "e=>e.style.opacity") == "",
+        lp.eval_on_selector("#island", "e=>e.style.opacity"))
+    chk("but it still writes the corner the springs move",
+        lp.eval_on_selector("#island", "e=>e.style.borderRadius") != "",
+        lp.eval_on_selector("#island", "e=>e.style.borderRadius"))
+    centred = lp.evaluate("""()=>{
+        var e = document.getElementById('island'), w = e.getBoundingClientRect().width;
+        var m = getComputedStyle(e).transform.match(/matrix\\(([^)]+)\\)/);
+        if(!m) return getComputedStyle(e).transform;
+        var p = m[1].split(',').map(Number);
+        return [p[0], p[3], Math.round(p[4]*2 + w)];   /* scale x, scale y, centring error */
+      }""")
+    chk("and the island still sits centred, unscaled, where its stylesheet puts it",
+        centred == [1, 1, 0], centred)
     # the cached width has to follow a real resize, or the island overflows it
     lp.set_viewport_size({"width": 300, "height": 700})
     lp.wait_for_timeout(1800)

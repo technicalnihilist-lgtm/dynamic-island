@@ -143,9 +143,13 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (350 checks, all passing). The 1.7.16, 1.7.32,
+reproduced, fixed and covered by `tools/test_app.py` (354 checks, all passing). The 1.7.16, 1.7.32,
 1.7.33, 1.7.35, 1.7.36, 1.7.38 and 1.7.40 entries are in the Android service as well as in the page, so the
 service half is covered only by the contract the page depends on.
+
+### 1.7.41 — optimisation slot 2
+
+1. **The preview's render loop integrated a fourth spring that nothing ever drove.** The loop carries one spring per thing that moves — width, height, corner — and carried a fourth: a scale, left over from a tap that shrank the island for a moment. Nothing has given it a target other than the 1 it was born on, or a velocity, so it sat on 1 for the life of the page while `paint()` read it on every frame of every morph and turned it into `"scale(1.000)"` and `opacity: 1` — two strings built, compared and written per frame, and four spring steps a frame spent on it, for two properties that could never change. The island's stylesheet already sets the transform it needs (`translateX(-50%)`) and an opacity of 1, so the loop now writes only what its springs actually move, exactly as the floating island's page has always done, and `unsettled()` no longer counts it. Every pixel the loop draws is the one it drew before; the transform, the centring and the radius are checked, and the render page reports the same sizes and the same 350-odd geometry as before. Four new browser checks: the island's inline style carries no transform and no opacity, still carries the radius the springs compute, and still sits centred and unscaled at −50 % of its own width — the first two fail before the change.
 
 ### 1.7.40 — optimisation slot 1
 
