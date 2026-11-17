@@ -288,6 +288,41 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
      is what the island is when nothing else is on it - and what it brings back
      at boot. */
   function forgetEnded(){ lastOpen='music'; }
+  /* The seven seconds a notification gets, and the call's clock, are both
+     timers - and this page lives in the one window Android throttles hardest:
+     an overlay WebView that is not foregrounded has its timers clamped, and a
+     window the system has paused stops delivering them at all. The preview in
+     the app has re-read the wall clock on the way back in since the day its
+     call timer stopped counting its own ticks; the page that is actually on
+     screen over every other app never got the same treatment. So a message
+     could sit on the island long after its seven seconds - for as long as the
+     window had been away - and a live call's clock could be showing a reading
+     a minute old on the one screen the user is looking at. The dismissal is
+     written down as the moment it is due instead of being left to a countdown,
+     which is what lets a late timer be told from an early one; both are put
+     right the moment the window is visible again. Nothing on screen changes
+     for a window that never went away: the same seven seconds from the same
+     moment, and the same clock, read off the same wall clock. */
+  var NOTIF_MS=7000, notifDue=0;
+  function notifExpired(){
+    notifT=null; notifDue=0;
+    /* it ended itself: nobody tapped it, so it goes without a buzz */
+    setState('idle',false,true); forgetEnded();
+  }
+  function armNotif(ms){
+    if(notifT){ clearTimeout(notifT); notifT=null; }
+    notifDue = ms>0 ? Date.now()+ms : 0;
+    if(ms>0) notifT=setTimeout(notifExpired,ms);
+  }
+  /* the window is on screen again: the wall clock kept running while the
+     timers did not, so anything that is late is settled now rather than when
+     the timer is finally delivered */
+  function resyncIsland(){
+    if(state==='ongoing') paintCallTime();
+    if(!notifDue) return;
+    var left = notifDue - Date.now();
+    if(left<=0) notifExpired(); else armNotif(left);
+  }
   var notifData=['','',''];
   var callData={ name:'Maya Chen', label:'Incoming call…', real:false };
   /* A call the phone has announced is live until it ends, whatever the island
@@ -451,6 +486,7 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     if(next==='incoming'||next==='calling'){ callStart=0; muted=false; speakerOn=false; clearCallStart(); }
     if(callTick){ clearInterval(callTick); callTick=null; callNode=null; }
     if(notifT){ clearTimeout(notifT); notifT=null; }
+    notifDue=0;                              /* a state change cancels the dismissal */
     targets();
     /* grow the native window first so nothing is clipped while it morphs */
     ensureWindow();
@@ -477,7 +513,7 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
         callTick=setInterval(paintCallTime,1000);
       }
       /* the notification dismissing itself is not a tap on anything */
-      if(state==='notif') notifT=setTimeout(function(){ setState('idle',false,true); forgetEnded(); },7000);
+      if(state==='notif') armNotif(NOTIF_MS);
     }, state==='idle'?130:110);
     if(!silent) haptic(state==='idle'?'light':'medium');
     try{ if(N && N.stateChanged) N.stateChanged(state); }catch(e){}
@@ -695,6 +731,9 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
       else if(mqReduce.addListener) mqReduce.addListener(onReduceChange);
     }catch(e){}
   }
+  /* the two ways a throttled or paused window tells the page it is back */
+  document.addEventListener('visibilitychange',function(){ if(!document.hidden) resyncIsland(); });
+  window.addEventListener('focus',resyncIsland);
   targets();
   paint();
   resize(Math.round(spW.t),Math.round(spH.t));

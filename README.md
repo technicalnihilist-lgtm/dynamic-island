@@ -143,9 +143,31 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (386 checks, all passing). The 1.7.16, 1.7.32,
+reproduced, fixed and covered by `tools/test_app.py` (393 checks, all passing). The 1.7.16, 1.7.32,
 1.7.33, 1.7.35, 1.7.36, 1.7.38 and 1.7.40 entries are in the Android service as well as in the page, so the
 service half is covered only by the contract the page depends on.
+
+### 1.7.48 — optimisation slot 10
+
+1. **A notification could outlive its seven seconds on the island that floats over every other app, by as
+   long as that window had been away — and a live call's clock could be showing a minute-old time on it.**
+   The notification's seven seconds and the call's clock are both timers, and the floating island's page
+   lives in the window Android throttles hardest: a WebView that is not foregrounded has its timers
+   clamped to roughly one a minute, and one the system has paused stops delivering them altogether. The
+   preview in the app has re-read the wall clock on the way back in ever since its call timer stopped
+   counting its own ticks (`visibilitychange`, and `focus`); this page never got the same treatment, so a
+   message sat on the island long after its seven seconds and the clock on the one screen the user is
+   looking at over another app could be a minute behind. The dismissal is written down as the moment it
+   is due instead of being left to a countdown, which is what lets a late timer be told from an early one,
+   and the moment the window is visible again anything that is late is settled: a notification past its
+   time goes at once, one that comes back inside its time keeps exactly the rest of it, and the call's
+   clock is repainted from the wall clock on that same frame instead of a tick later. Nothing on screen
+   changes for a window that never went away — the same seven seconds from the same moment, the same
+   clock, the same pixels — and nothing about the island's size, look or interaction is touched. Seven new
+   browser checks on the floating island, driven through the same `visibilitychange` the preview's own
+   timer check uses: two fail before the change (the notification is still on the island after eight
+   seconds away, and the clock still reads `00:01` after a minute and a half), the other five hold the
+   seven seconds and the clock to what they were, and all 386 existing checks still pass.
 
 ### 1.7.47 — optimisation slot 5
 

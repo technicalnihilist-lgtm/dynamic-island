@@ -2134,6 +2134,76 @@ with sync_playwright() as p:
     chk("the ended-call overlay has no errors", len(oerrs) == 0, oerrs[:3])
     oc.close()
 
+    # ---- the island over other apps has to re-read the clock it was throttled on
+    # The notification's seven seconds and the call's clock are timers, and the
+    # overlay window is the one Android throttles hardest: a window that is not
+    # foregrounded has its timers clamped, and one the system has paused stops
+    # delivering them at all. The preview has re-read the wall clock on the way
+    # back in ever since its call timer stopped counting its own ticks; this
+    # page never did, so a message stayed on the island long after its seven
+    # seconds - for as long as the window had been away - and a live call's
+    # clock could show a minute-old reading. Both are settled on the moment the
+    # window is visible again, and the seven seconds are still seven seconds:
+    # a notification that comes back inside its time keeps the rest of it.
+    rs = b.new_context(viewport={"width": 390, "height": 200}, device_scale_factor=3, color_scheme="dark")
+    rs.add_init_script(MOCK)
+    rs.add_init_script(CLOCK_FAKE)
+    rp = rs.new_page()
+    rerrs = []
+    rp.on("pageerror", lambda e: rerrs.append(str(e)))
+    rp.goto(OVERLAY_URL); rp.wait_for_timeout(900)
+    rbox = lambda: rp.eval_on_selector("#island", "e=>{const r=e.getBoundingClientRect();return {w:Math.round(r.width),h:Math.round(r.height)}}")
+    rtxt = lambda: rp.eval_on_selector("#content", "e=>e.textContent")
+
+    def rsettle():
+        prev = None
+        for _ in range(30):
+            g = rbox()
+            if near(g, 130, 38) and g == prev: return g
+            prev = g
+            rp.wait_for_timeout(100)
+        return rbox()
+
+    rp.evaluate("window.__notify('Messages','Maya Chen','See you at 8')"); rp.wait_for_timeout(1200)
+    chk("the notification is on the island before the window goes away",
+        "Maya Chen" in rtxt(), rtxt())
+    # eight seconds pass while the window is away, and its timer is delivered late
+    rp.evaluate("window.__off += 8000")
+    rp.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
+    rp.wait_for_timeout(400)
+    g = rsettle()
+    chk("a notification whose seven seconds ran out while the window was away "
+        "is gone the moment it is back",
+        near(g, 130, 38) and "Maya" not in rtxt(), (g, rtxt()))
+
+    rp.evaluate("window.__notify('Messages','Maya Chen','See you at 8')"); rp.wait_for_timeout(1200)
+    rp.evaluate("window.__off += 2000")          # two of its seven seconds away
+    rp.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
+    rp.wait_for_timeout(700)
+    chk("a notification still inside its seven seconds is left alone",
+        "Maya Chen" in rtxt(), rtxt())
+    rp.wait_for_timeout(2100)
+    chk("and it is not cut short by coming back", "Maya Chen" in rtxt(), rtxt())
+    rp.wait_for_timeout(2500)
+    g = rsettle()
+    chk("and it still goes when its own seven seconds are up, not seven more",
+        near(g, 130, 38) and "Maya" not in rtxt(), (g, rtxt()))
+
+    # the call's clock, which the same throttling freezes: it has to be right on
+    # the frame the window comes back, not a tick later
+    rp.evaluate("window.__setState('ongoing')"); rp.wait_for_timeout(1200)
+    jumped = rp.evaluate("""(function(){
+        var n = document.querySelector('#content [data-role="time"]');
+        var before = n.textContent;
+        window.__off += 95000;                   /* a minute and a half away */
+        document.dispatchEvent(new Event('visibilitychange'));
+        return [before, n.textContent];
+    })()""")
+    chk("coming back to the floating island re-syncs the call clock at once",
+        jumped[0] != jumped[1] and jumped[1].startswith("01:"), jumped)
+    chk("the re-synced island has no errors", len(rerrs) == 0, rerrs[:3])
+    rs.close()
+
     # ---- the island has to be able to name the app it is showing ----------
     # The notification listener looks the posting app up in the PackageManager
     # for the initial in the notification's avatar and for the name an untitled
