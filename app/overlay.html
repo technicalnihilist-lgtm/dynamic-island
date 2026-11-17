@@ -140,7 +140,7 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
      capped so a window frozen while the screen was off cannot come back and
      spin the loop for thousands of steps at once. */
   var STEP=1/240, MAX_STEPS=48;          /* at most 200 ms of catch-up per frame */
-  var raf=null, lastT=0, bank=0, settleT=null, settledW=130, settledH=38;
+  var raf=null, lastT=0, bank=0, settleT=null, lastFrameAt=0, settledW=130, settledH=38;
   function unsettled(){
     return Math.abs(spW.x-spW.t)>.05||Math.abs(spW.v)>.05||
            Math.abs(spH.x-spH.t)>.05||Math.abs(spH.v)>.05||
@@ -154,8 +154,15 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     if(sh!==shown.h){ island.style.height=sh; shown.h=sh; }
     if(sr!==shown.r){ island.style.borderRadius=sr; shown.r=sr; }
   }
+  /* a monotonic millisecond clock for the settle net below; it does not
+     allocate and is not the wall clock, so asking it once a frame costs
+     nothing */
+  var pnow=(window.performance&&window.performance.now)
+    ? function(){ return window.performance.now(); }
+    : function(){ return Date.now(); };
   function frame(now){
     raf=null;
+    lastFrameAt=pnow();                  /* the settle net asks this, see below */
     var dt=lastT?(now-lastT)/1000:STEP*4; lastT=now;
     if(!(dt>0)) dt=STEP*4;               /* a timestamp that went backwards */
     bank+=dt;
@@ -216,7 +223,26 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     var w=Math.round(spW.x), h=Math.round(spH.x);
     if(w!==settledW||h!==settledH){ settledW=w; settledH=h; resize(w,h); }
   }
-  function armSettle(){ if(settleT) clearTimeout(settleT); settleT=setTimeout(function(){ settleT=null; snapAll(); },1500); }
+  /* The net is for frames that stop arriving, so the loop never settles
+     itself. It fired on the clock alone, 1.5 s after the animation started,
+     and 1.5 s is only just longer than a morph at the default bounce: turn
+     Bounce up and the springs are still moving when it fires, so the timer
+     that exists to rescue a stranded island cut a live morph short and
+     snapped it - at Bounce 100 this window jumped the last few pixels of its
+     own bounce in one frame, and this is the island that is on screen over
+     every other app. It asks the loop now: a frame drawn in the last half
+     second means the island is not stranded, so the net waits another window
+     instead of snapping. Frames that really stop leave it to fire, which is
+     the case it was written for, and a morph that settles on its own still
+     disarms it from frame(). A morph at the default bounce settles well
+     inside the first window, so nothing about it changes. */
+  var SETTLE_MS=1500, ALIVE_MS=500;
+  function settleCheck(){
+    settleT=null;
+    if(raf!==null && pnow()-lastFrameAt<ALIVE_MS){ settleT=setTimeout(settleCheck,SETTLE_MS); return; }
+    snapAll();
+  }
+  function armSettle(){ if(settleT) clearTimeout(settleT); settleT=setTimeout(settleCheck,SETTLE_MS); }
   /* The backstop exists for frames that stop arriving, so the loop never gets
      to settle itself. It was never cancelled when the loop DID settle, so every
      morph left a live timer behind for the rest of its 1.5 s - and a tap in

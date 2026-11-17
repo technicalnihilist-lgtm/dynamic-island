@@ -415,8 +415,15 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
     if(sh !== shown.h){ island.style.height = sh; shown.h = sh; }
     if(sr !== shown.r){ island.style.borderRadius = sr; shown.r = sr; }
   }
+  /* a monotonic millisecond clock for the settle net below; performance.now()
+     does not allocate and is not the wall clock, so asking it once a frame
+     costs nothing and cannot be mistaken for the page reading the time */
+  var pnow = (window.performance && window.performance.now)
+    ? function(){ return window.performance.now(); }
+    : function(){ return Date.now(); };
   function frame(now){
     raf = null;
+    lastFrameAt = pnow();              /* the settle net asks this, see below */
     var dt = lastT ? (now - lastT)/1000 : STEP*4;
     lastT = now;
     if(!(dt > 0)) dt = STEP*4;           /* a timestamp that went backwards */
@@ -460,16 +467,41 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   }
   /* if frames are throttled (backgrounded tab, heavy device) settle anyway
      so the island can never be left stranded at an in-between size */
-  var settleT = null;
+  var settleT = null, lastFrameAt = 0;
   function snapAll(){
     spW.x = spW.t; spH.x = spH.t; spR.x = spR.t;
     spW.v = spH.v = spR.v = 0;
     if(raf !== null){ cancelAnimationFrame(raf); raf = null; }
     lastT = 0; bank = 0; paint(); applyPos();
   }
+  /* The net exists for one case only: frames that stop arriving, so the loop
+     never gets to settle itself. It fired on the clock alone, 1.5 s after the
+     animation started - and 1.5 s is only just longer than a morph at the
+     default bounce. Turn Bounce up and the springs are still moving when it
+     fires, so the timer that exists to rescue a stranded island cut a live
+     morph short and snapped it: at Bounce 100 the island jumped the last four
+     or five pixels of its own bounce in a single frame, and the more bounce
+     the user asked for the bigger the jump - the one animation in this app
+     that is supposed to be the user's to tune. It asks the loop now. A frame
+     drawn in the last half second means the island is not stranded and the
+     loop is doing exactly what the net is there for, so the net waits another
+     window instead of snapping; frames that really stop leave it to fire,
+     which is the case it was written for. A morph that settles on its own
+     still disarms it from frame(). The default bounce settles well inside the
+     first window, so nothing about a morph that finishes in its usual half
+     second changes - not its size, not its springs, not its timing. */
+  var SETTLE_MS = 1500, ALIVE_MS = 500;
+  function settleCheck(){
+    settleT = null;
+    if(raf !== null && pnow() - lastFrameAt < ALIVE_MS){
+      settleT = setTimeout(settleCheck, SETTLE_MS);
+      return;
+    }
+    snapAll();
+  }
   function armSettle(){
     if(settleT) clearTimeout(settleT);
-    settleT = setTimeout(function(){ settleT = null; snapAll(); }, 1500);
+    settleT = setTimeout(settleCheck, SETTLE_MS);
   }
   /* The backstop is only there for the case it was written for: frames that
      stop arriving, so the loop never gets to settle itself. Nothing cancelled

@@ -143,9 +143,31 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (369 checks, all passing). The 1.7.16, 1.7.32,
+reproduced, fixed and covered by `tools/test_app.py` (373 checks, all passing). The 1.7.16, 1.7.32,
 1.7.33, 1.7.35, 1.7.36, 1.7.38 and 1.7.40 entries are in the Android service as well as in the page, so the
 service half is covered only by the contract the page depends on.
+
+### 1.7.45 — optimisation slot 2
+
+1. **The settle net cut a live morph short and snapped it.** `armSettle()` is a 1.5 s timer for the one case
+   it was written for: frames that stop arriving, so the spring loop never gets to settle itself and the island
+   would be left stranded at an in-between size. It fired on the clock alone, and 1.5 s is only just longer
+   than a morph at the default bounce — a preview morph comes to rest around 1.38 s, and the floating
+   island's window delivers frames unevenly enough to be later still. Turn Bounce up and the springs are
+   unmistakably still moving when the timer fires: at Bounce 100 they need about four seconds, so the timer
+   that exists to rescue a stranded island snapped a morph that was running perfectly well, and the island
+   jumped the last few pixels of its own bounce in a single frame — measured at 9.6 px in the floating window
+   (308.40 px to 318.00 px in one step), and the more bounce the user asked for the bigger the jump. It asks
+   the loop now: `frame()` records when it last drew, and the net only snaps if the loop is not running or has
+   not drawn for half a second, which is precisely "the frames stopped arriving". Otherwise it waits another
+   window. The timestamp is `performance.now()`, not `Date.now()`, so a frame costs no allocation and the page
+   still reads the wall clock only for the clock. A morph at the default bounce still settles inside the first
+   window and still disarms the net itself, so its size, its springs and its timing are unchanged, and a
+   wobble whose frames really do stop is still put on its target at 1.5 s. Four new browser checks, run on
+   both islands with the hand-driven rAF and real time passing between frame bursts so the net's 1.5 s really
+   does come round mid-morph: at Bounce 100 the island must still be off its target once the net has fired,
+   and must still land on it. The first two fail before the change (the island reads 318.00 px from the
+   moment the net fires, in both pages).
 
 ### 1.7.44 — optimisation slot 10
 

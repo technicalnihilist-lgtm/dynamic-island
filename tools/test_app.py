@@ -1586,6 +1586,56 @@ with sync_playwright() as p:
         abs(oafter - 318) < 0.05, (omid, oafter))
     osp.close()
 
+    # ---- the net must not cut a morph that is still running --------------
+    # The net is a 1.5 s timer for frames that stop arriving. It fired on the
+    # clock alone, and 1.5 s is only just longer than a morph at the default
+    # bounce: turn Bounce up and the springs are still moving when it fires, so
+    # the timer that exists to rescue a stranded island snapped a live morph.
+    # At Bounce 100 the island jumped the last four or five pixels of its own
+    # bounce in one frame - the more bounce the user asked for, the bigger the
+    # jump. It asks the loop now, so a morph that is being drawn keeps running.
+    # Frames are pumped with the hand-driven rAF and real time is allowed to
+    # pass between bursts, so the net's 1.5 s really does come round while the
+    # loop is alive.
+    def net_keeps_morph(page, set_bounce, api):
+        page.evaluate(set_bounce)
+        page.evaluate("(function(){" + api + "('idle');window.__rafRun(16.7,1400);})()")
+        page.evaluate("(function(){" + api + "('music');})()")
+        w = []
+        for i in range(14):
+            page.evaluate("window.__rafRun(16.7,8)")   # 134 ms of frames
+            page.wait_for_timeout(180)                 # 180 ms of the net's window
+            if i >= 10:
+                w.append(page.evaluate(
+                    "parseFloat(document.getElementById('island').style.width)"))
+        return w
+
+    SPIN = "(function(){var e=document.getElementById('sk');e.value=100;" \
+           "e.dispatchEvent(new Event('input',{bubbles:true}));" \
+           "e.dispatchEvent(new Event('change',{bubbles:true}));})()"
+
+    np2 = fast.new_page()
+    np2.goto(URL); np2.wait_for_timeout(300)
+    nw = net_keeps_morph(np2, SPIN, "window.__di.setState")
+    chk("a bouncy morph is not snapped away while it is still being drawn",
+        max(abs(v - 318) for v in nw) > 2, nw)
+    np2.evaluate("window.__rafRun(16.7,4000)")
+    chk("and it still lands on its size",
+        abs(np2.evaluate("parseFloat(document.getElementById('island').style.width)") - 318) <= 1,
+        np2.evaluate("parseFloat(document.getElementById('island').style.width)"))
+    np2.close()
+
+    nop = fast.new_page()
+    nop.goto(OVERLAY_URL); nop.wait_for_timeout(300)
+    now_ = net_keeps_morph(nop, "window.__setConfig(1,1,1,1)", "window.__setState")
+    chk("a bouncy floating morph is not snapped away either",
+        max(abs(v - 318) for v in now_) > 2, now_)
+    nop.evaluate("window.__rafRun(16.7,4000)")
+    chk("and the floating island still lands on its size",
+        abs(nop.evaluate("parseFloat(document.getElementById('island').style.width)") - 318) <= 1,
+        nop.evaluate("parseFloat(document.getElementById('island').style.width)"))
+    nop.close()
+
     # ---- a tap wobble must never be left stranded --------------------------
     # Every one of these - Mute, Speaker, play, next, the Bounce slider, the boot
     # nudge - starts its animation through kick() alone, and kick() used to arm
