@@ -2053,6 +2053,86 @@ with sync_playwright() as p:
     chk("the phantom-press page has no errors", len(nerrs) == 0, nerrs[:3])
     nx.close()
 
+    # ---- an ended call is not a state to bring back ----------------------
+    # Tapping the collapsed island reopens whatever was on it last, which is
+    # right for a call that is still running and wrong for one that is over.
+    # End and Decline put the island away and left that memory pointing at the
+    # call they ended, so the next tap rebuilt the call view from the template:
+    # a clock counting up from 00:00 with Mute, Speaker and End on a call
+    # nobody is on, and the green and red buttons for the call that had just
+    # been declined - on the preview and on the island that is on screen over
+    # every other app. A notification's seven seconds running out did the same
+    # in the floating window. What a tap brings back now is the player, which
+    # is what the island is when nothing else is on it, and a call that is
+    # still ringing or still connected is still brought back untouched.
+    acts = lambda pg: pg.eval_on_selector_all("#content [data-a]", "els=>els.map(e=>e.dataset.a)")
+    txt_of = lambda pg: pg.eval_on_selector("#content", "e=>e.textContent")
+
+    ec = b.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=3, color_scheme="dark")
+    ec.add_init_script(MOCK)
+    ep = ec.new_page()
+    eerrs = []
+    ep.on("pageerror", lambda e: eerrs.append(str(e)))
+    ep.goto(URL); ep.wait_for_timeout(900)
+
+    ep.click('#states .chip[data-s="incoming"]'); ep.wait_for_timeout(1300)
+    ep.click('#island [data-a="accept"]'); ep.wait_for_timeout(1000)
+    ep.click('#content [data-a="end"]'); ep.wait_for_timeout(1200)
+    ep.click("#island", position={"x": 12, "y": 10}); ep.wait_for_timeout(900)
+    chk("an island tapped open after a call ended does not show the call",
+        ep.evaluate("window.__di.state") != "ongoing", ep.evaluate("window.__di.state"))
+    chk("and has no End, Mute or Speaker button on it",
+        "end" not in acts(ep) and "mute" not in acts(ep), acts(ep))
+    chk("and no call clock running on it",
+        ep.eval_on_selector_all('#content [data-role="time"]', "els=>els.length") == 0)
+
+    ep.click('#states .chip[data-s="incoming"]'); ep.wait_for_timeout(1300)
+    ep.click('#island [data-a="decline"]'); ep.wait_for_timeout(1200)
+    ep.click("#island", position={"x": 12, "y": 10}); ep.wait_for_timeout(900)
+    chk("a call declined and tapped open again is not back on the island",
+        "accept" not in acts(ep) and "decline" not in acts(ep), acts(ep))
+    chk("and the caller's name is not on it",
+        "Maya" not in txt_of(ep), txt_of(ep))
+
+    # a call that is still ringing is a different matter: it is still live
+    ep.click('#states .chip[data-s="incoming"]'); ep.wait_for_timeout(1300)
+    ep.click("#island", position={"x": 12, "y": 10}); ep.wait_for_timeout(1200)
+    ep.click("#island", position={"x": 12, "y": 10}); ep.wait_for_timeout(900)
+    chk("a call that is still ringing is still brought back",
+        "accept" in acts(ep) and "Maya" in txt_of(ep), (acts(ep), txt_of(ep)))
+    chk("the ended-call page has no errors", len(eerrs) == 0, eerrs[:3])
+    ec.close()
+
+    # the same two, on the island that sits over every other app
+    oc = b.new_context(viewport={"width": 390, "height": 200}, device_scale_factor=3, color_scheme="dark")
+    oc.add_init_script(MOCK)
+    opc = oc.new_page()
+    oerrs = []
+    opc.on("pageerror", lambda e: oerrs.append(str(e)))
+    opc.goto(OVERLAY_URL); opc.wait_for_timeout(900)
+
+    opc.evaluate("window.__call('Maya Chen','Incoming call')"); opc.wait_for_timeout(1200)
+    opc.click("#content .btn.green"); opc.wait_for_timeout(900)
+    opc.click('#content [data-a="end"]'); opc.wait_for_timeout(1200)
+    opc.click("#island", position={"x": 12, "y": 10}); opc.wait_for_timeout(900)
+    chk("the floating island does not bring back a call ended in it",
+        "end" not in acts(opc) and "mute" not in acts(opc), acts(opc))
+
+    opc.evaluate("window.__call('Ravi Kumar','Incoming call')"); opc.wait_for_timeout(1200)
+    opc.evaluate("window.__callEnd()"); opc.wait_for_timeout(1200)
+    opc.click("#island", position={"x": 12, "y": 10}); opc.wait_for_timeout(900)
+    chk("nor one the phone ended",
+        "accept" not in acts(opc) and "Ravi" not in txt_of(opc), (acts(opc), txt_of(opc)))
+
+    opc.evaluate("window.__setState('idle')"); opc.wait_for_timeout(900)
+    opc.evaluate("window.__notify('Messages','Ravi','Are you free?')"); opc.wait_for_timeout(1200)
+    opc.wait_for_timeout(7200)                    # its seven seconds run out
+    opc.click("#island", position={"x": 12, "y": 10}); opc.wait_for_timeout(900)
+    chk("and a notification that dismissed itself stays dismissed",
+        "Are you free?" not in txt_of(opc), txt_of(opc))
+    chk("the ended-call overlay has no errors", len(oerrs) == 0, oerrs[:3])
+    oc.close()
+
     b.close()
 
 print("\n%d checks, %d failed" % (checks[0], len(fails)))

@@ -272,6 +272,22 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
   }
 
   var state='idle', lastOpen='music', swapT=null, token=0, notifT=null;
+  /* What a tap on the collapsed island brings back. It was simply whatever was
+     on screen last, and neither of the two things that leave this island on
+     their own is something to bring back: a call that has ended, and a
+     notification whose seven seconds are up. Both put the island away and left
+     lastOpen pointing at themselves, so the next tap rebuilt that view from the
+     template - a clock counting up from 00:00 with Mute, Speaker and End on a
+     call nobody is on, the green and red buttons for the call that was just
+     declined, or a message that had already been dismissed. A notification is
+     never worth reopening (it left by timing out or by being replaced), so it
+     is never remembered; a call is worth reopening only while it is still
+     running, which is why the end of a call forgets it and the middle of one
+     does not - a call put away and tapped back comes back with its clock, its
+     mute and its speaker, exactly as before. What is left is the player, which
+     is what the island is when nothing else is on it - and what it brings back
+     at boot. */
+  function forgetEnded(){ lastOpen='music'; }
   var notifData=['','',''];
   var callData={ name:'Maya Chen', label:'Incoming call…', real:false };
   /* A call the phone has announced is live until it ends, whatever the island
@@ -428,7 +444,7 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
   function setState(next, force, silent){
     if(!BASE[next]) next='idle';
     if(next===state && !force) return;
-    if(next!==state){ if(state!=='idle') lastOpen=state; state=next; }
+    if(next!==state){ if(state!=='idle' && state!=='notif') lastOpen=state; state=next; }
     /* a call arriving, or one being placed, is a new call: its mute, its
        speaker and its clock start empty. Putting the island away and bringing
        it back is the same call, and keeps all three. */
@@ -461,7 +477,7 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
         callTick=setInterval(paintCallTime,1000);
       }
       /* the notification dismissing itself is not a tap on anything */
-      if(state==='notif') notifT=setTimeout(function(){ setState('idle',false,true); },7000);
+      if(state==='notif') notifT=setTimeout(function(){ setState('idle',false,true); forgetEnded(); },7000);
     }, state==='idle'?130:110);
     if(!silent) haptic(state==='idle'?'light':'medium');
     try{ if(N && N.stateChanged) N.stateChanged(state); }catch(e){}
@@ -485,7 +501,7 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
            a track never comes back to an island that has ended its call. */
         try{ if(N && N.callEnded) N.callEnded(); }catch(e){}
         callStart=0; muted=false; speakerOn=false; clearCallStart();
-        setState('idle');
+        setState('idle'); forgetEnded();
       }
       else if(act==='mute'||act==='speaker'){
         /* The only sign that Mute or Speaker is on is the button turning from
@@ -590,6 +606,9 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     /* the phone stopped ringing or the other side hung up: the island goes
        away on its own, so it goes away without a buzz */
     if(state==='incoming'||state==='ongoing') setState('idle',false,true);
+    /* the call is over, so the island goes back to being a player - a tap on
+       the collapsed island must not rebuild the call view for it */
+    forgetEnded();
   };
   /* A call and a notification own the island until they finish. The player is
      polled every 1.5 s, and every one of those polls used to hand the island

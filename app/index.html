@@ -915,6 +915,17 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
      the one place the two buttons share. Nothing moves for a press that
      changes nothing; every press that does change the state bounces exactly
      as before. */
+  /* What a tap on the collapsed island brings back. It was simply whatever was
+     on screen last, and a call that has already ended is not something to
+     bring back: End and Decline put the island away and left lastOpen pointing
+     at the call they ended, so the next tap rebuilt the call view from the
+     template - a clock counting up from 00:00 with Mute, Speaker and End on it
+     for a call nobody is on, or the green and red buttons for the call that was
+     just declined. Nothing else in this page takes the island away from a call,
+     so forgetting it where a call really ends is enough: a call that is still
+     running keeps lastOpen, and a tap that opens it again still brings the live
+     call back with its clock and its toggles, exactly as before. */
+  function forgetEndedCall(){ lastOpen = 'music'; }
   function openIsland(){
     if(state !== 'idle') return;                /* already open: nothing to expand */
     setState(lastOpen || 'music');
@@ -931,7 +942,7 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
     if(a){
       var act = a.dataset.a;
       if(act === 'accept'){ callStart = 0; muted = false; speakerOn = false; setState('ongoing'); }
-      else if(act === 'decline' || act === 'end'){ callStart = 0; muted = false; speakerOn = false; setState('idle'); }
+      else if(act === 'decline' || act === 'end'){ callStart = 0; muted = false; speakerOn = false; setState('idle'); forgetEndedCall(); }
       else if(act === 'mute' || act === 'speaker'){
         if(act === 'mute') muted = !muted; else speakerOn = !speakerOn;
         var on = (act === 'mute') ? muted : speakerOn;

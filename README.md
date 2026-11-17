@@ -143,9 +143,25 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (373 checks, all passing). The 1.7.16, 1.7.32,
+reproduced, fixed and covered by `tools/test_app.py` (384 checks, all passing). The 1.7.16, 1.7.32,
 1.7.33, 1.7.35, 1.7.36, 1.7.38 and 1.7.40 entries are in the Android service as well as in the page, so the
 service half is covered only by the contract the page depends on.
+
+### 1.7.46 — optimisation slot 3
+
+1. **A call that had ended came back when you tapped the island.** The island reopens whatever was on it last,
+   and that memory was simply the last state it had shown — including the one it had just left because it was
+   over. Tapping the collapsed island after ending a call rebuilt the call view from the template: a clock
+   counting up from `00:00`, with Mute, Speaker and End on a call nobody was on. Declining a ringing call and
+   tapping the island put the green and red buttons back for the call that had just been declined, and in the
+   floating window a notification whose seven seconds had run out came back the same way. The memory is now
+   the player, which is what the island is when nothing else is on it: End, Decline, a call the phone ends and
+   a notification timing out all forget themselves, while a call that is still ringing or still connected
+   keeps it — putting a live call away and tapping it back still brings back that call, its clock, its mute
+   and its speaker, exactly as before. Nothing on screen changes for any of that: the pixels, the sizes and
+   the springs are the ones they were, and the only difference is what a tap finds. Eleven new browser
+   checks, run on both islands; the four that matter fail before the change (the island reads `ongoing` with
+   an `end` button, or `incoming` with `accept`, after the call was over).
 
 ### 1.7.45 — optimisation slot 2
 
