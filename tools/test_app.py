@@ -1,5 +1,6 @@
 """Behavioural tests for the Dynamic Island web app (in-app preview + overlay)."""
 import os, sys
+import xml.etree.ElementTree as ET
 from playwright.sync_api import sync_playwright
 
 HTML = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else
@@ -2132,6 +2133,36 @@ with sync_playwright() as p:
         "Are you free?" not in txt_of(opc), txt_of(opc))
     chk("the ended-call overlay has no errors", len(oerrs) == 0, oerrs[:3])
     oc.close()
+
+    # ---- the island has to be able to name the app it is showing ----------
+    # The notification listener looks the posting app up in the PackageManager
+    # for the initial in the notification's avatar and for the name an untitled
+    # notification is drawn with. An app that targets API 30 or higher does not
+    # see other packages unless its manifest declares what it needs, and this one
+    # targets 34 and declared nothing - so every lookup threw NameNotFound, the
+    # catch swallowed it and the page was handed the raw package name: "c" in
+    # every avatar, "com.whatsapp" on an untitled message. Nothing in the page
+    # can tell, which is why this is checked here, on the manifest, rather than
+    # in the browser: the declaration has to exist and it has to stay the narrow
+    # one - launcher apps, which is every app that can post something the island
+    # would show - and not the blanket QUERY_ALL_PACKAGES permission.
+    A = "{http://schemas.android.com/apk/res/android}"
+    mf = os.path.join(os.path.dirname(HTML), "android", "AndroidManifest.xml")
+    if os.path.exists(mf):
+        mroot = ET.parse(mf).getroot()
+        q = mroot.find("queries")
+        seen = []
+        if q is not None:
+            for i in q.findall("intent"):
+                a_, c_ = i.find("action"), i.find("category")
+                seen.append((a_.get(A + "name") if a_ is not None else "",
+                             c_.get(A + "name") if c_ is not None else ""))
+        chk("the manifest asks to see the apps the island has to name",
+            ("android.intent.action.MAIN", "android.intent.category.LAUNCHER") in seen, seen)
+        chk("and asks for launcher apps, not every package on the phone",
+            "android.permission.QUERY_ALL_PACKAGES" not in
+            [p.get(A + "name") for p in mroot.findall("uses-permission")],
+            [p.get(A + "name") for p in mroot.findall("uses-permission")])
 
     b.close()
 

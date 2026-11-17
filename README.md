@@ -143,9 +143,29 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (384 checks, all passing). The 1.7.16, 1.7.32,
+reproduced, fixed and covered by `tools/test_app.py` (386 checks, all passing). The 1.7.16, 1.7.32,
 1.7.33, 1.7.35, 1.7.36, 1.7.38 and 1.7.40 entries are in the Android service as well as in the page, so the
 service half is covered only by the contract the page depends on.
+
+### 1.7.47 — optimisation slot 5
+
+1. **The island could not name the app a notification came from, on every phone from Android 11 up.**
+   The notification listener asks the `PackageManager` for the posting app so the island can draw the
+   initial in the notification's avatar, and so an untitled notification can still be drawn with the name
+   of the app that sent it. Android 11 filters `PackageManager` for an app that targets API 30 or higher
+   unless its manifest declares what it needs to see, this app targets 34, and it declared nothing — so
+   `getApplicationInfo` threw `NameNotFoundException` on every lookup, `appLabel`'s catch swallowed it and
+   returned the package name. Every notification from every app drew a `c` in its avatar, and an untitled
+   one read `com.whatsapp` where `WhatsApp` belongs: the one line of the island that says who is talking
+   was wrong for all of them, silently, on every phone made since 2020. The manifest now declares the
+   launcher-apps query (`MAIN`/`LAUNCHER`), which is the narrowest declaration that covers it — anything
+   that can put a notification in the shade has a launcher activity — and deliberately not
+   `QUERY_ALL_PACKAGES`, which Google Play reviews. The lookup is the same lookup, the fallback is the same
+   fallback, and nothing on screen moves: the avatar shows the initial the app has always had, and the
+   package name is only reached for an app that has no launcher at all. Service-only, so the check is on the
+   manifest rather than in the browser: two new checks assert the declaration exists and that it is the
+   launcher query and not the blanket permission — the first fails before the change (there is no `queries`
+   element at all), and all 384 existing checks still pass.
 
 ### 1.7.46 — optimisation slot 3
 

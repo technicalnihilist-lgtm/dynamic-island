@@ -1,10 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.hubclue.dynamicisland"
-    android:versionCode="54"
-    android:versionName="1.7.46">
+    android:versionCode="55"
+    android:versionName="1.7.47">
 
     <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
+
+    <!-- Android 11 filters PackageManager by default for an app that targets API 30
+         or higher, and this app targets 34. The notification listener asks the
+         PackageManager for the name of the app that posted a notification so the
+         island can draw its initial and, for a notification with no title, name it.
+         That lookup is not exempted for a notification listener, so on every phone
+         from Android 11 up it threw NameNotFoundException, the catch swallowed it
+         and the island fell back to the raw package name: every notification from
+         every app drew a "c" in its avatar, and an untitled one read
+         "com.whatsapp" where the app's own name belongs. Listing launcher apps is
+         the smallest declaration that covers what the island has to name - an app
+         that can put something in the shade has a launcher activity - and it is
+         deliberately not QUERY_ALL_PACKAGES. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
 
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
