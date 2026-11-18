@@ -588,6 +588,20 @@ public class IslandService extends Service {
         if (s != null) s.clearCall();
     }
 
+    /**
+     * Whether the phone is on a call right now.
+     *
+     * The island cannot answer this about itself: tapping it away during a call
+     * leaves it idle, and so does a call that has ended, so the state on screen
+     * is the same in both cases. The app's preview reopens whatever was on the
+     * island last, and for a call that is only right while the call is still
+     * running - which is what this answers (see window.__overlayState).
+     */
+    public static boolean callLive() {
+        IslandService s = sInstance;
+        return s != null && s.callActive;
+    }
+
     private static float clampPct(float v) {
         if (Float.isNaN(v)) return 0f;
         return v < 0f ? 0f : (v > 100f ? 100f : v);

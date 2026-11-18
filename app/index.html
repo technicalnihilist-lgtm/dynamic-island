@@ -895,12 +895,32 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
     if(!silent) haptic('light');
   }
 
-  /* the floating island changed state while this app was in the background */
-  window.__overlayState = function(s){
-    if(!BASE[s] || s === state) return;
-    syncing = true;
-    setState(s);
-    syncing = false;
+  /* the floating island changed state while this app was in the background.
+     The second argument is the service's own answer to "is the phone on a call
+     right now", and it is the one thing the state on screen cannot say: tapping
+     the island away during a call leaves it idle, and so does a call that has
+     ended. Without it this page kept lastOpen on "ongoing" for a call the phone
+     had already finished - End was pressed in another app, or the other side
+     hung up - so coming back to the app and tapping the island rebuilt the call
+     view from the template: a clock counting up from the elapsed time of a call
+     nobody is on, with Mute, Speaker and End on it, in the app's own preview.
+     A call that is still live says so, and keeps its place exactly as before;
+     and a page that is never told - the demo's own chips, an island the service
+     is not driving - changes nothing, because only an explicit false forgets. */
+  window.__overlayState = function(s, callLive){
+    if(!BASE[s]) return;
+    /* a call is over: nothing on the island is a call any more, and the service
+       says the phone is not on one */
+    var callGone = (callLive === false && (s === 'idle' || s === 'music'));
+    if(s !== state){
+      syncing = true;
+      setState(s);
+      syncing = false;
+    }
+    /* after the state change, never before it: setState is what records the
+       state it is leaving as lastOpen, so forgetting first would be undone by
+       the very call that collapses the island */
+    if(callGone) forgetEndedCall();
   };
 
   window.__sysState = function(canDraw, running, notif, err){

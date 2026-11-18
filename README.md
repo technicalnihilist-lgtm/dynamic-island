@@ -143,9 +143,28 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (402 checks, all passing). The 1.7.16, 1.7.32,
+reproduced, fixed and covered by `tools/test_app.py` (411 checks, all passing). The 1.7.16, 1.7.32,
 1.7.33, 1.7.35, 1.7.36, 1.7.38 and 1.7.40 entries are in the Android service as well as in the page, so the
 service half is covered only by the contract the page depends on.
+
+### 1.7.51 — optimisation slot 9
+
+1. **A call that ended on the phone came back when you tapped the island in the app.** The island reopens
+   whatever was on it last, and during a call that is the call. End and Decline tapped *in* the preview
+   already forgot it, but the ordinary way a call ends happens somewhere else: the other side hangs up, or
+   End is pressed in the floating island over another app. Coming back to the app then mirrored the idle
+   island, left the preview's `lastOpen` pointing at `ongoing`, and the next tap rebuilt the call view from
+   the template — a clock counting up from the elapsed time of a call nobody is on, with Mute, Speaker and
+   End on it, in the app's own preview. The state on screen cannot settle it on its own: tapping the island
+   away during a call leaves it idle too, and that call *is* still running and must still come back. So the
+   service answers the question — `IslandService.callLive()`, true from the moment the phone announces a
+   call until it really ends — and `pushSystemState()` carries the answer with the state it already mirrors
+   (`window.__overlayState(state, callLive)`). Only an explicit `false` forgets; a mirror that says nothing
+   about the call (every other caller, and the demo's own chips) behaves exactly as it did. Nothing on
+   screen changes for a call that is still live, and no size, look or interaction is touched. Nine new
+   browser checks drive both halves through the mirror — the ended call must reopen as the player, the live
+   call must come back with its clock and its size, and a mirror with no answer must leave the call alone —
+   and the first two of them fail before the change.
 
 ### 1.7.50 — optimisation slot 2
 

@@ -230,7 +230,13 @@ public class MainActivity extends Activity {
         err = err.replace("'", " ").replace("\\", " ");
         String js = "window.__sysState&&window.__sysState("
                 + canDraw() + "," + IslandService.RUNNING + "," + notifAccess() + ",'" + err + "');"
-                + "window.__overlayState&&window.__overlayState('" + st + "')";
+                /* the state alone cannot say whether the call it shows is still
+                   running - a call put away and a call that ended both leave the
+                   island idle - so the service's answer goes with it, and the
+                   preview stops reopening a call nobody is on (see
+                   window.__overlayState in index.html) */
+                + "window.__overlayState&&window.__overlayState('" + st + "',"
+                + IslandService.callLive() + ")";
         try {
             web.evaluateJavascript(js, null);
         } catch (Throwable ignored) {

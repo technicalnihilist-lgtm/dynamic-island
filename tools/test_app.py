@@ -860,6 +860,58 @@ with sync_playwright() as p:
     chk("the call timer page has no errors", len(terrs) == 0, terrs[:3])
     tim.close()
 
+    # ---- a call that ended on the phone must not come back on a tap ------
+    # The island reopens whatever was on it last, and during a call that is the
+    # call. End and Decline tapped IN the preview already forget it
+    # (forgetEndedCall), but the ordinary way a call ends is somewhere else: the
+    # other side hangs up, or End is pressed in the floating island over another
+    # app. Coming back to this app then mirrored the idle island, left lastOpen
+    # pointing at "ongoing", and the next tap on the island rebuilt the call view
+    # from the template - a clock counting up from the elapsed time of a call
+    # nobody is on, with Mute, Speaker and End on it. The state alone cannot
+    # settle it: tapping the island away during a call leaves it idle too, and
+    # that call is still running and must still come back. So the service
+    # answers the question and the mirror carries the answer.
+    ce = b.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=3, color_scheme="dark")
+    ce.add_init_script(MOCK)
+    cep = ce.new_page()
+    ceerrs = []
+    cep.on("pageerror", lambda e: ceerrs.append(str(e)))
+    cep.goto(URL); cep.wait_for_timeout(900)
+    cstate = lambda: cep.evaluate("window.__di.state")
+
+    cep.evaluate("window.__di.setState('ongoing')"); cep.wait_for_timeout(1400)
+    chk("the preview is on a call for the ended-call test", cstate() == "ongoing", cstate())
+    cep.evaluate("window.__overlayState('idle', false)")     # the phone hung up
+    cep.wait_for_timeout(1400)
+    chk("a call that ended on the phone collapses the island", near(box_of(cep), 130, 38), box_of(cep))
+    cep.click("#island", position={"x": 12, "y": 10}); cep.wait_for_timeout(1400)
+    chk("a call that ended on the phone is not brought back by a tap",
+        cstate() == "music", cstate())
+    chk("and the island opens on the player, at the player's size",
+        near(box_of(cep), 318, 128), box_of(cep))
+
+    # the other half of the same question: a call that is still running and was
+    # only put away has to come back exactly as it was
+    cep.evaluate("window.__di.setState('ongoing')"); cep.wait_for_timeout(1400)
+    cep.evaluate("window.__overlayState('idle', true)")      # put away mid-call
+    cep.wait_for_timeout(1400)
+    chk("a call that is still running collapses the island too", near(box_of(cep), 130, 38), box_of(cep))
+    cep.click("#island", position={"x": 12, "y": 10}); cep.wait_for_timeout(1400)
+    chk("a call that is still running still comes back when the island is tapped",
+        cstate() == "ongoing", cstate())
+    chk("and comes back at the call's size", near(box_of(cep), 318, 118), box_of(cep))
+    # a mirror that says nothing about the call - the shape every other caller
+    # uses - must keep the behaviour it always had
+    cep.evaluate("window.__di.setState('idle')"); cep.wait_for_timeout(900)
+    cep.evaluate("window.__overlayState('ongoing')"); cep.wait_for_timeout(1400)
+    cep.evaluate("window.__overlayState('idle')"); cep.wait_for_timeout(1400)
+    cep.click("#island", position={"x": 12, "y": 10}); cep.wait_for_timeout(1400)
+    chk("a mirror with no answer about the call leaves the call in place",
+        cstate() == "ongoing", cstate())
+    chk("the ended-call page has no errors", len(ceerrs) == 0, ceerrs[:3])
+    ce.close()
+
     # ---- the overlay page itself -----------------------------------------
     ov = b.new_context(viewport={"width": 390, "height": 200}, device_scale_factor=3, color_scheme="dark")
     ov.add_init_script(MOCK)
