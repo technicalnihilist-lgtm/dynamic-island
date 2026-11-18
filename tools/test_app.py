@@ -82,6 +82,30 @@ VIEWPORT_FAKE = """
 })();
 """
 
+TICK_FAKE = """
+(function(){
+  /* every repeating timer the page holds open, and whether it is still live */
+  var si = window.setInterval, ci = window.clearInterval, live = [];
+  window.setInterval = function(fn, d){
+    var id = si.apply(window, arguments);
+    live.push([id, d]);
+    return id;
+  };
+  window.clearInterval = function(id){
+    for(var i = 0; i < live.length; i++){
+      if(live[i][0] === id){ live.splice(i, 1); break; }
+    }
+    return ci.apply(window, arguments);
+  };
+  /* how many one-second timers the page is keeping alive */
+  window.__liveTicks = function(){
+    var n = 0;
+    for(var i = 0; i < live.length; i++) if(live[i][1] === 1000) n++;
+    return n;
+  };
+})();
+"""
+
 RAF_FAKE = """
 (function(){
   /* a hand-driven requestAnimationFrame: the test decides when a frame happens
@@ -2224,6 +2248,83 @@ with sync_playwright() as p:
         jumped[0] != jumped[1] and jumped[1].startswith("01:"), jumped)
     chk("the re-synced island has no errors", len(rerrs) == 0, rerrs[:3])
     rs.close()
+
+    # ---- a call clock nobody can see must not wake the page ----------------
+    # The call clock is a one-second timer, and it ran for as long as the call
+    # did - including the whole of every call the user was not looking at. Both
+    # pages are hidden for exactly as long as the screen is off, and a call held
+    # to the ear is the ordinary case: the screen is off for the entire
+    # conversation, and the timer went on waking the WebView once a second to
+    # write a string into a node nobody was drawing. It reads the wall clock, so
+    # a tick is a redraw and never the time itself - which is what makes it safe
+    # to stop while nothing is drawn, and what puts the real elapsed time back
+    # on the island the moment it is drawn again.
+    tick = b.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=3, color_scheme="dark")
+    tick.add_init_script(MOCK)
+    tick.add_init_script(CLOCK_FAKE)
+    tick.add_init_script(TICK_FAKE)
+    kp = tick.new_page()
+    kerrs = []
+    kp.on("pageerror", lambda e: kerrs.append(str(e)))
+    kp.goto(URL); kp.wait_for_timeout(900)
+    # document.hidden is read-only in a browser that is really on screen, so the
+    # test makes it answer instead - the same thing Android does to the page
+    # when the screen goes off
+    kp.evaluate("""Object.defineProperty(document, 'hidden', {
+        configurable: true, get: function(){ return window.__hidden === true; }
+    })""")
+    kp.click('#states .chip[data-s="incoming"]'); kp.wait_for_timeout(1300)
+    kp.click('#island [data-a="accept"]'); kp.wait_for_timeout(700)
+    chk("a live call runs one one-second clock timer",
+        kp.evaluate("window.__liveTicks()") == 1, kp.evaluate("window.__liveTicks()"))
+    kp.evaluate("window.__hidden = true; document.dispatchEvent(new Event('visibilitychange'))")
+    kp.wait_for_timeout(150)
+    chk("a call clock nobody is drawing costs no wakeups at all",
+        kp.evaluate("window.__liveTicks()") == 0, kp.evaluate("window.__liveTicks()"))
+    # ninety-five seconds pass with the page away, then it is drawn again
+    kp.evaluate("window.__off += 95000")
+    back = kp.evaluate("""(function(){
+        window.__hidden = false;
+        document.dispatchEvent(new Event('visibilitychange'));
+        return [window.__liveTicks(),
+                document.querySelector('#content [data-role="time"]').textContent];
+    })()""")
+    chk("coming back to the app puts the real call time on it and its tick back",
+        back[0] == 1 and back[1].startswith("01:"), back)
+    chk("the call clock that parked itself has no errors", len(kerrs) == 0, kerrs[:3])
+    tick.close()
+
+    # the same clock on the window that floats over every other app, which is
+    # hidden for as long as the screen is off while a call is running
+    ticko = b.new_context(viewport={"width": 390, "height": 200}, device_scale_factor=3, color_scheme="dark")
+    ticko.add_init_script(MOCK)
+    ticko.add_init_script(CLOCK_FAKE)
+    ticko.add_init_script(TICK_FAKE)
+    kop = ticko.new_page()
+    koerrs = []
+    kop.on("pageerror", lambda e: koerrs.append(str(e)))
+    kop.goto(OVERLAY_URL); kop.wait_for_timeout(700)
+    kop.evaluate("""Object.defineProperty(document, 'hidden', {
+        configurable: true, get: function(){ return window.__hidden === true; }
+    })""")
+    kop.evaluate("window.__setState('ongoing')"); kop.wait_for_timeout(500)
+    chk("the floating island's live call runs one one-second clock timer",
+        kop.evaluate("window.__liveTicks()") == 1, kop.evaluate("window.__liveTicks()"))
+    kop.evaluate("window.__hidden = true; document.dispatchEvent(new Event('visibilitychange'))")
+    kop.wait_for_timeout(150)
+    chk("and costs no wakeups while the screen it is over is off",
+        kop.evaluate("window.__liveTicks()") == 0, kop.evaluate("window.__liveTicks()"))
+    kop.evaluate("window.__off += 95000")
+    rback = kop.evaluate("""(function(){
+        window.__hidden = false;
+        document.dispatchEvent(new Event('visibilitychange'));
+        return [window.__liveTicks(),
+                document.querySelector('#content [data-role="time"]').textContent];
+    })()""")
+    chk("the floating island's clock is right the moment it is drawn again",
+        rback[0] == 1 and rback[1].startswith("01:"), rback)
+    chk("the floating island's parked clock has no errors", len(koerrs) == 0, koerrs[:3])
+    ticko.close()
 
     # ---- the island has to be able to name the app it is showing ----------
     # The notification listener looks the posting app up in the PackageManager

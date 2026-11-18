@@ -143,9 +143,25 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (390 checks, all passing). The 1.7.16, 1.7.32,
+reproduced, fixed and covered by `tools/test_app.py` (402 checks, all passing). The 1.7.16, 1.7.32,
 1.7.33, 1.7.35, 1.7.36, 1.7.38 and 1.7.40 entries are in the Android service as well as in the page, so the
 service half is covered only by the contract the page depends on.
+
+### 1.7.50 — optimisation slot 2
+
+1. **The call clock woke both pages once a second for the whole of every call nobody was looking at.** It is a
+   one-second `setInterval` that writes a string into the clock node, and it ran for as long as the call did —
+   while a page that is hidden draws nothing at all, which is the ordinary state of a phone during a call: the
+   screen is off for the entire conversation, and a track playing in another app keeps the floating window
+   hidden with the display asleep. The tick is only ever a redraw, never the time itself — the clock has read
+   the wall clock since 1.7.15 — so it is stopped now on the `visibilitychange` that says the page is hidden and
+   re-armed from the same handler and from `focus`, where `paintCallTime()` was already putting the real
+   elapsed time back on the island. The service has parked its media polling while the screen is off for
+   exactly this reason; the page's clock now does the same. Nothing on screen changes: a page that is drawn sees
+   the same tick it saw, and one that comes back is repainted from the wall clock before the next tick would
+   have been due. Eight new browser checks, four on each page, hide the document, count the one-second timers
+   the page is holding, advance the clock and bring it back; two of them fail before the change and all eight
+   pass after it, alongside all 394 existing checks.
 
 ### 1.7.49 — optimisation slot 1
 

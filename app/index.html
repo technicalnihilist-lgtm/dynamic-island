@@ -669,7 +669,7 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
       if(!callStart) callStart = Date.now();
       callNode = content.querySelector('[data-role="time"]');
       paintCallTime();
-      callTick = setInterval(paintCallTime, 1000);
+      armCallTick();
     } else if(state === 'calling'){
       /* BUG FIX: own handle, so it can never fire after you leave the state */
       promoteT = setTimeout(function(){
@@ -678,8 +678,31 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
       }, 3600);
     }
   }
+  /* The clock is a one-second timer, and it ran for as long as the call did -
+     including for the whole of every call the user was not looking at. This
+     page is not drawn while the app is in the background or the screen is off,
+     and a call held to the ear is the ordinary case: the screen is off for the
+     entire conversation, and the timer went on waking the WebView once a
+     second to write a string into a node nobody was drawing. It reads the wall
+     clock, so a tick is only ever a redraw and never the time itself: stopping
+     it while the page is hidden loses nothing, and the moment the page is drawn
+     again paintCallTime() puts the real elapsed time on it - which is what the
+     visibilitychange handler below already did. Armed and disarmed from the two
+     places the page already learns it is back (visibilitychange, focus); a page
+     that never goes away sees exactly the ticks it saw before. */
+  function armCallTick(){
+    if(callTick || state !== 'ongoing' || document.hidden) return;
+    callTick = setInterval(paintCallTime, 1000);
+  }
+  function disarmCallTick(){
+    if(callTick){ clearInterval(callTick); callTick = null; }
+  }
   function clearTimers(){
-    if(callTick){ clearInterval(callTick); callTick = null; callNode = null; }
+    /* the node is dropped whether or not a tick was running: a state change
+       that arrives while the page is hidden has no tick to stop, and the old
+       node must not be left behind for paintCallTime() to write into */
+    disarmCallTick();
+    callNode = null;
     if(promoteT){ clearTimeout(promoteT); promoteT = null; }
     if(swapT){ clearTimeout(swapT); swapT = null; }
   }
@@ -1146,9 +1169,15 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
     if(clockT){ clearTimeout(clockT); clockT = null; }
     tickClock();
     scheduleClock();
+    /* the focus path arrives here as well, so a call clock that was stopped
+       while the page was hidden is always put back on the way in */
+    armCallTick();
   }
   document.addEventListener('visibilitychange', function(){
-    if(!document.hidden){ readViewport(); refreshClock(); paintCallTime(); }
+    /* nothing on this page is being drawn while it is hidden, and the call
+       clock's tick is a redraw, not the time - see armCallTick() */
+    if(document.hidden){ disarmCallTick(); return; }
+    readViewport(); refreshClock(); paintCallTime(); armCallTick();
   });
   window.addEventListener('focus', refreshClock);
 

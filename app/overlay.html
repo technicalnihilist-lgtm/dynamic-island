@@ -318,7 +318,7 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
      timers did not, so anything that is late is settled now rather than when
      the timer is finally delivered */
   function resyncIsland(){
-    if(state==='ongoing') paintCallTime();
+    if(state==='ongoing'){ paintCallTime(); armCallTick(); }
     if(!notifDue) return;
     var left = notifDue - Date.now();
     if(left<=0) notifExpired(); else armNotif(left);
@@ -390,6 +390,26 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     if(s<0) s=0;
     callNode.textContent=pad2(Math.floor(s/60))+':'+pad2(s%60);
   }
+  /* The clock is a one-second timer, and it ran for as long as the call did -
+     including for the whole of every call the user was not looking at. This is
+     the window that is on screen over every other app, and it is hidden for
+     exactly as long as the screen is off: a call held to the ear, a phone in a
+     pocket, a track playing in another app with the display asleep. The timer
+     went on waking the WebView once a second through all of it to write a
+     string into a node nobody was drawing. It reads the wall clock, so a tick
+     is only ever a redraw and never the time itself: stopping it while the
+     window is hidden loses nothing, and resyncIsland() - which already repaints
+     the clock from the wall clock the moment the window is back - puts the real
+     elapsed time on it before the next tick would have arrived. The service
+     stops its own media polling on the same signal (ACTION_SCREEN_OFF) for the
+     same reason. Armed and disarmed from the two places this page already
+     learns it is back (visibilitychange, focus); a window that never goes away
+     sees exactly the ticks it saw before. */
+  function armCallTick(){
+    if(callTick || state!=='ongoing' || document.hidden) return;
+    callTick=setInterval(paintCallTime,1000);
+  }
+  function disarmCallTick(){ if(callTick){ clearInterval(callTick); callTick=null; } }
 
   var P={mic:'M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-3.1A7 7 0 0 0 19 11z',
     spk:'M3 9v6h4l5 5V4L7 9zm13.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4z',
@@ -484,7 +504,11 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
        speaker and its clock start empty. Putting the island away and bringing
        it back is the same call, and keeps all three. */
     if(next==='incoming'||next==='calling'){ callStart=0; muted=false; speakerOn=false; clearCallStart(); }
-    if(callTick){ clearInterval(callTick); callTick=null; callNode=null; }
+    /* the node is dropped whether or not a tick was running: a state change
+       that arrives while the window is hidden has no tick to stop, and the old
+       node must not be left behind for paintCallTime() to write into */
+    disarmCallTick();
+    callNode=null;
     if(notifT){ clearTimeout(notifT); notifT=null; }
     notifDue=0;                              /* a state change cancels the dismissal */
     /* The seven seconds start when the notification arrives, not when the
@@ -527,7 +551,7 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
         saveCallStart();
         callNode=content.querySelector('[data-role="time"]');
         paintCallTime();
-        callTick=setInterval(paintCallTime,1000);
+        armCallTick();
       }
     }, state==='idle'?130:110);
     if(!silent) haptic(state==='idle'?'light':'medium');
@@ -747,7 +771,11 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     }catch(e){}
   }
   /* the two ways a throttled or paused window tells the page it is back */
-  document.addEventListener('visibilitychange',function(){ if(!document.hidden) resyncIsland(); });
+  document.addEventListener('visibilitychange',function(){
+    /* a hidden window draws nothing: the tick is a redraw, not the time */
+    if(document.hidden){ disarmCallTick(); return; }
+    resyncIsland();
+  });
   window.addEventListener('focus',resyncIsland);
   targets();
   paint();
