@@ -143,9 +143,27 @@ Any earlier version installs straight over the top — same signing key.
 ## Bugs fixed
 
 The original mockup looked right in a screenshot but misbehaved when you used it. Everything below was
-reproduced, fixed and covered by `tools/test_app.py` (393 checks, all passing). The 1.7.16, 1.7.32,
+reproduced, fixed and covered by `tools/test_app.py` (390 checks, all passing). The 1.7.16, 1.7.32,
 1.7.33, 1.7.35, 1.7.36, 1.7.38 and 1.7.40 entries are in the Android service as well as in the page, so the
 service half is covered only by the contract the page depends on.
+
+### 1.7.49 — optimisation slot 1
+
+1. **A message could outlive its seven seconds by the whole time the window had been away, if it arrived just
+   before the window stopped being drawn.** The dismissal was armed by the 110 ms timer that fades the
+   notification view in, not by the notification arriving — and that timer is exactly the one Android is
+   late for in the overlay window: a WebView that is not foregrounded has its timers clamped to roughly
+   one a minute, and one the system has paused stops delivering them at all. So a message that landed just
+   as the user switched apps had its due time written down whenever the swap finally ran, minutes later,
+   and came back onto the island with seven fresh seconds that had already passed — the one case
+   `resyncIsland()` exists for, and the one it could not settle, because it found the due time still at 0
+   and left it alone while the swap then armed it. The moment is written down where the arrival is now, so
+   the window coming back settles anything that is due at once. A window that never went away sees the same
+   seven seconds it always did, starting 110 ms earlier than they used to; nothing about the island's size,
+   look or interaction is touched. One new browser check on the floating island drives the arrival, the
+   seven seconds and the return in a single task, so the fade-in timer has not run yet — it fails before the
+   change (the island is still 318×94 with the message on it) and passes after, and all 389 existing checks
+   still pass.
 
 ### 1.7.48 — optimisation slot 10
 

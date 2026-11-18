@@ -2189,6 +2189,27 @@ with sync_playwright() as p:
     chk("and it still goes when its own seven seconds are up, not seven more",
         near(g, 130, 38) and "Maya" not in rtxt(), (g, rtxt()))
 
+    # The seven seconds used to be armed by the timer that fades the view in,
+    # 110 ms after the message arrives - and that is the timer a window which
+    # is not being drawn is late for, or never gets. So a message that arrived
+    # just before the user switched apps was handed seven fresh seconds when
+    # the swap finally ran, minutes later, and sat on the island over another
+    # app long after its time: the one case resyncIsland() exists for, and the
+    # one it could not settle, because the moment was not written down yet -
+    # it found the due time at 0, left it alone, and the swap then armed it.
+    # Both halves are driven in one task here: the arrival, its seven seconds
+    # passing, and the window coming back - before the fade-in timer has had a
+    # chance to run, which is exactly the state a throttled window is in.
+    rp.evaluate("""(function(){
+        window.__notify('Messages','Maya Chen','See you at 8');
+        window.__off += 8000;          /* its seven seconds pass while it is away */
+        document.dispatchEvent(new Event('visibilitychange'));
+    })()""")
+    rp.wait_for_timeout(400)
+    g = rsettle()
+    chk("a message whose seven seconds passed before its fade-in timer ran is gone",
+        near(g, 130, 38) and "Maya" not in rtxt(), (g, rtxt()))
+
     # the call's clock, which the same throttling freezes: it has to be right on
     # the frame the window comes back, not a tick later
     rp.evaluate("window.__setState('ongoing')"); rp.wait_for_timeout(1200)

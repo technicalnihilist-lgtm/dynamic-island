@@ -487,6 +487,23 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     if(callTick){ clearInterval(callTick); callTick=null; callNode=null; }
     if(notifT){ clearTimeout(notifT); notifT=null; }
     notifDue=0;                              /* a state change cancels the dismissal */
+    /* The seven seconds start when the notification arrives, not when the
+       fade-in timer that redraws the island gets to run. That timer is 110 ms
+       on a window that is being drawn - and this page lives in the one window
+       Android stops drawing: a WebView that is not foregrounded has its timers
+       clamped to roughly one a minute, and one the system has paused stops
+       delivering them at all. So a message that arrived just before the user
+       switched apps had its dismissal armed whenever the swap finally ran,
+       minutes later, and came back onto the island with seven fresh seconds
+       that had already passed - the very case resyncIsland() was written to
+       settle, which could not settle it because the moment was not written
+       down yet: it found notifDue at 0 and left it alone, and then the swap
+       armed the timer and gave the message seven more. Armed here, where the
+       arrival is, so the moment is known the instant the window comes back.
+       A window that never went away sees the same seven seconds it always did,
+       starting 110 ms earlier than they used to - the same message, on the
+       same pixels, gone when its own time is up. */
+    if(next==='notif') armNotif(NOTIF_MS);
     targets();
     /* grow the native window first so nothing is clipped while it morphs */
     ensureWindow();
@@ -512,8 +529,6 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
         paintCallTime();
         callTick=setInterval(paintCallTime,1000);
       }
-      /* the notification dismissing itself is not a tap on anything */
-      if(state==='notif') armNotif(NOTIF_MS);
     }, state==='idle'?130:110);
     if(!silent) haptic(state==='idle'?'light':'medium');
     try{ if(N && N.stateChanged) N.stateChanged(state); }catch(e){}
