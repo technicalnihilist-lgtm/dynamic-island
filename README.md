@@ -1,10 +1,10 @@
 <div align="center">
 
+<img src="assets/icon.png" width="96" height="96" alt="A liquid-glass Dynamic Island you can actually poke: spring-driven morphs, incoming/ongoing call… icon">
+
+<img src="assets/banner.svg" alt="A liquid-glass Dynamic Island you can actually poke: spring-driven morphs, incoming/ongoing call…">
+
 <a href="https://github.com/technicalnihilist-lgtm/dynamic-island/stargazers"><img src="https://img.shields.io/badge/stars-1-5A31F4?style=for-the-badge&logo=github&logoColor=white" alt="stars: 1"></a>&nbsp;<a href="https://github.com/technicalnihilist-lgtm/dynamic-island/network/members"><img src="https://img.shields.io/badge/forks-0-3FB950?style=for-the-badge" alt="forks: 0"></a>
-
-<h3>A liquid-glass Dynamic Island you can actually poke: spring-driven morphs, incoming/ongoing call…</h3>
-
-<img src="https://img.shields.io/badge/Python-5865F2?style=flat-square" alt="Python"> <img src="https://img.shields.io/badge/Android-3B3F4A?style=flat-square" alt="Android"> <img src="https://img.shields.io/badge/Animations-3FB950?style=flat-square" alt="Animations"> <img src="https://img.shields.io/badge/APK-EC4899?style=flat-square" alt="APK">
 
 <a href="https://github.com/technicalnihilist-lgtm/dynamic-island/releases/latest"><img src="https://img.shields.io/badge/DOWNLOAD-APK-6D5AE6?style=for-the-badge&logo=android&logoColor=white" alt="Download APK"></a>
 
@@ -16,13 +16,7 @@
 
 <a href="https://github.com/technicalnihilist-lgtm/dynamic-island/releases/latest"><img src="https://img.shields.io/badge/VERSION-v1.7.48-6D5AE6?style=for-the-badge" alt="VERSION: v1.7.48"></a> <img src="https://img.shields.io/badge/DOWNLOADS-60-3FB950?style=for-the-badge" alt="DOWNLOADS: 60"> <a href="https://github.com/technicalnihilist-lgtm/dynamic-island/releases"><img src="https://img.shields.io/badge/RELEASES-GITHUB-EC4899?style=for-the-badge&logo=github&logoColor=white" alt="RELEASES: GITHUB"></a>
 
-<h4>Get it from</h4>
-
-<a href="https://github.com/technicalnihilist-lgtm/dynamic-island/releases"><img src="https://img.shields.io/badge/GitHub-Releases-181717?style=for-the-badge&logo=github&logoColor=white" alt="GitHub Releases"></a> <a href="https://github.com/technicalnihilist-lgtm/dynamic-island/archive/refs/heads/main.zip"><img src="https://img.shields.io/badge/Source-ZIP-0EA5E9?style=for-the-badge&logo=github&logoColor=white" alt="Source ZIP"></a>
-
 </div>
-
----
 
 ---
 
