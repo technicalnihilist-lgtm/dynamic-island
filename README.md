@@ -1,12 +1,12 @@
 <div align="center">
 
-<img src="assets/icon.png" width="96" height="96" alt="A liquid-glass Dynamic Island you can actually poke: spring-driven morphs, incoming/ongoing call… icon">
+<img src="assets/icon.png" width="96" height="96" alt="Dynamic Island icon">
 
-<img src="assets/banner.svg" alt="A liquid-glass Dynamic Island you can actually poke: spring-driven morphs, incoming/ongoing call…">
+<img src="assets/banner.svg" alt="Dynamic Island">
 
 <a href="https://github.com/technicalnihilist-lgtm/dynamic-island/stargazers"><img src="https://img.shields.io/badge/stars-1-5A31F4?style=for-the-badge&logo=github&logoColor=white" alt="stars: 1"></a>&nbsp;<a href="https://github.com/technicalnihilist-lgtm/dynamic-island/network/members"><img src="https://img.shields.io/badge/forks-0-3FB950?style=for-the-badge" alt="forks: 0"></a>
 
-<a href="https://github.com/technicalnihilist-lgtm/dynamic-island/releases/latest"><img src="https://img.shields.io/badge/DOWNLOAD-APK-6D5AE6?style=for-the-badge&logo=android&logoColor=white" alt="Download APK"></a>
+<a href="https://github.com/technicalnihilist-lgtm/dynamic-island/releases/latest/download/DynamicIsland-1.7.48.apk"><img src="https://img.shields.io/badge/DOWNLOAD-APK-6D5AE6?style=for-the-badge&logo=android&logoColor=white" alt="Download APK"></a> <a href="https://technicalnihilist-lgtm.github.io/apps-site/apps/dynamic-island.html"><img src="https://img.shields.io/badge/WEBSITE-OPEN-3B82F6?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Website"></a>
 
 <b>Support the work</b>
 
